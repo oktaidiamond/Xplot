@@ -417,6 +417,12 @@ input, textarea, [contenteditable="true"], .embed.editing {
 .layer-vis:hover { opacity: 1; }
 .layer-del { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 3px; color: var(--chrome-text-soft); cursor: pointer; opacity: 0; transition: opacity 0.12s, color 0.12s, background 0.12s; }
 .layer-row:hover .layer-del { opacity: 1; }
+.layer-locate { position: absolute; right: 26px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 3px; color: var(--chrome-text-soft); cursor: pointer; opacity: 0.5; transition: opacity 0.12s, color 0.12s, background 0.12s; }
+.layer-row:hover .layer-locate { opacity: 1; }
+.layer-locate:hover { color: var(--chrome-text); background: var(--chrome-line); }
+.layer-row.has-locate .layer-name, .layer-row.has-locate .layer-name-display { padding-right: 46px; }
+.ui-tip { position: fixed; left: 0; top: 0; z-index: 3000; pointer-events: none; background: #0d0e11; color: var(--chrome-text); border: 1px solid var(--chrome-line-strong); border-radius: 4px; padding: 4px 7px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; white-space: nowrap; box-shadow: var(--shadow); opacity: 0; transform: translateY(-2px); transition: opacity 0.1s, transform 0.1s; }
+.ui-tip.show { opacity: 1; transform: translateY(0); }
 .layer-del:hover { color: var(--warn); background: rgba(166,74,58,0.12); }
 .layer-name { flex: 1; min-width: 0; box-sizing: border-box; font-family: var(--serif); font-size: 13px; background: transparent; border: none; outline: none; color: var(--chrome-text); padding-right: 22px; }
 .layer-name-display { flex: 1; min-width: 0; font-family: var(--serif); font-size: 13px; line-height: 1.8; color: var(--chrome-text); padding-right: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
@@ -765,6 +771,36 @@ function makeLayer(name) {
 }
 function activeLayer() { return state.layers.find(l => l.id === state.activeLayerId); }
 
+function layerWorldBounds(layer) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const add = (b, pad = 0) => {
+    if (!b || !isFinite(b.x) || !isFinite(b.y)) return;
+    minX = Math.min(minX, b.x - pad); minY = Math.min(minY, b.y - pad);
+    maxX = Math.max(maxX, b.x + b.w + pad); maxY = Math.max(maxY, b.y + b.h + pad);
+  };
+  for (const s of layer.strokes) {
+    if (s.mode === 'eraser') continue;
+    if (!s.kind && (!s.points || !s.points.length)) continue;
+    add(strokeBounds(s), (s.width || 0) / 2);
+  }
+  for (const em of layer.embeds) add(em);
+  const sel = state.selection;
+  if (sel && sel.lifted && sel.layerId === layer.id) add(sel.bbox);
+  return isFinite(minX) ? { x: minX, y: minY, w: maxX - minX, h: maxY - minY } : null;
+}
+
+function zoomToLayer(layer) {
+  const b = layerWorldBounds(layer);
+  if (!b) return;
+  const r = wrap.getBoundingClientRect();
+  const fit = Math.min(r.width * 0.7 / Math.max(b.w, 1e-6), r.height * 0.7 / Math.max(b.h, 1e-6));
+  const scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, 8, fit));
+  state.view.scale = scale;
+  state.view.x = b.x + b.w / 2 - r.width / (2 * scale);
+  state.view.y = b.y + b.h / 2 - r.height / (2 * scale);
+  render();
+}
+
 
 function renderLayerList() {
   const list = document.getElementById('layerList');
@@ -797,7 +833,8 @@ function renderLayerList() {
       e.stopPropagation();
       layer.visible = !layer.visible;
       vis.classList.toggle('on', layer.visible);
-      vis.title = layer.visible ? 'Hide layer' : 'Show layer';
+      vis.removeAttribute('title');
+      vis.dataset.tip = layer.visible ? 'Hide layer' : 'Show layer';
       setIcon();
       render();
     };
@@ -861,6 +898,18 @@ function renderLayerList() {
     name.style.display = 'none';
     row.appendChild(name);
     row.appendChild(display);
+
+    if (!layer.base) {
+      const loc = document.createElement('button');
+      loc.className = 'layer-locate';
+      loc.title = 'Zoom to layer';
+      loc.draggable = false;
+      loc.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 5.5 V2 H5.5 M10.5 2 H14 V5.5 M14 10.5 V14 H10.5 M5.5 14 H2 V10.5"/><circle cx="8" cy="8" r="2"/></svg>';
+      loc.onclick = (e) => { e.stopPropagation(); zoomToLayer(layer); };
+      loc.onmousedown = (e) => e.stopPropagation();
+      row.appendChild(loc);
+      row.classList.add('has-locate');
+    }
 
     // Delete button — hidden by default, fades in on row hover
     const del = document.createElement('button');
@@ -1434,7 +1483,9 @@ wrap.addEventListener('wheel', (e) => {
   e.preventDefault();
   const sp = eventScreenCoords(e);
   const wp0 = screenToWorld(sp.x, sp.y);
-  const factor = Math.exp(-e.deltaY * 0.0015);
+  const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  const k = e.ctrlKey ? 0.012 : 0.004;
+  const factor = Math.exp(-Math.max(-100, Math.min(100, dy)) * k);
   state.view.scale = Math.max(0.01, Math.min(40, state.view.scale * factor));
   const wp1 = screenToWorld(sp.x, sp.y);
   state.view.x += wp0.x - wp1.x;
@@ -2041,34 +2092,50 @@ function enterTextEditMode(em, isNew) {
     fitTextEmbedToContent(em);
     render();
   };
+  let done = false;
+  let inserting = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    em.el.removeEventListener('input', onInput);
+    em.el.removeEventListener('keydown', onKeydown);
+    em.el.removeEventListener('beforeinput', onBeforeInput);
+    em.el.removeEventListener('blur', onBlur);
+    if (document.activeElement === em.el) em.el.blur();
+    const s = window.getSelection();
+    if (s) s.removeAllRanges();
+    exitTextEditMode(em, isNew);
+  };
   const onKeydown = (e) => {
+    e.stopPropagation();
+    if (e.isComposing) return;
     if (e.key === 'Escape') {
       e.preventDefault();
-      em.el.blur();
-    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      // Cmd/Ctrl+Enter commits
+      finish();
+    } else if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
-      em.el.blur();
-    } else if (e.key === 'Enter') {
-      // Plain Enter inserts a real \n character at the caret. Using execCommand('insertText')
-      // delegates to the browser's text insertion, which correctly handles the trailing-newline
-      // visibility quirk (a bare \n at end of a text node doesn't render until something follows).
-      e.preventDefault();
+      inserting = true;
       document.execCommand('insertText', false, '\n');
+      inserting = false;
       em.data.text = readRawSourceFromEl(em.el);
       fitTextEmbedToContent(em);
       render();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      finish();
     }
-    e.stopPropagation();
   };
-  const onBlur = () => {
-    em.el.removeEventListener('input', onInput);
-    em.el.removeEventListener('keydown', onKeydown);
-    em.el.removeEventListener('blur', onBlur);
-    exitTextEditMode(em, isNew);
+  const onBeforeInput = (e) => {
+    if (inserting) return;
+    if (e.inputType === 'insertParagraph') {
+      e.preventDefault();
+      finish();
+    }
   };
+  const onBlur = () => finish();
   em.el.addEventListener('input', onInput);
   em.el.addEventListener('keydown', onKeydown);
+  em.el.addEventListener('beforeinput', onBeforeInput);
   em.el.addEventListener('blur', onBlur);
 }
 
@@ -3349,6 +3416,7 @@ function snapshotState() {
     id: layer.id,
     name: layer.name,
     visible: layer.visible,
+    base: !!layer.base,
     strokes: layer.strokes.map(s => {
       if (s.kind === 'image') {
         return {
@@ -3413,6 +3481,7 @@ function restoreSnapshot(snap) {
     id: layer.id,
     name: layer.name,
     visible: layer.visible,
+    base: !!layer.base,
     strokes: layer.strokes.map(s => {
       if (s.kind === 'image') {
         return {
@@ -3742,6 +3811,7 @@ function doFullReset() {
 
   // Create a fresh starter layer
   const l = makeLayer('Sketch');
+  l.base = true;
   state.layers.push(l);
   state.activeLayerId = l.id;
 
@@ -3838,6 +3908,46 @@ document.getElementById('zoomSlider').addEventListener('input', e => {
   zoomEl.addEventListener('blur', commit);
 })();
 
+(function setupTooltips() {
+  const tip = document.createElement('div');
+  tip.className = 'ui-tip';
+  document.body.appendChild(tip);
+  let target = null, timer = null;
+  const hide = () => { clearTimeout(timer); timer = null; target = null; tip.classList.remove('show'); };
+  const place = (el) => {
+    const r = el.getBoundingClientRect();
+    const tr = tip.getBoundingClientRect();
+    let top = r.bottom + 6;
+    if (top + tr.height > window.innerHeight - 4) top = r.top - 6 - tr.height;
+    const left = Math.max(4, Math.min(window.innerWidth - tr.width - 4, r.left + r.width / 2 - tr.width / 2));
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  };
+  document.addEventListener('mouseover', (e) => {
+    if (e.buttons) { hide(); return; }
+    const el = e.target.closest && e.target.closest('[title], [data-tip]');
+    if (el && el.hasAttribute('title')) {
+      el.dataset.tip = el.getAttribute('title');
+      el.removeAttribute('title');
+    }
+    if (el === target) return;
+    hide();
+    if (!el || !el.dataset.tip) return;
+    target = el;
+    timer = setTimeout(() => {
+      if (target !== el || !el.isConnected) return;
+      tip.textContent = el.dataset.tip;
+      place(el);
+      tip.classList.add('show');
+    }, 350);
+  });
+  document.addEventListener('mousedown', hide, true);
+  document.addEventListener('keydown', hide, true);
+  document.addEventListener('wheel', hide, { passive: true, capture: true });
+  document.documentElement.addEventListener('mouseleave', hide);
+  window.addEventListener('blur', hide);
+})();
+
 /* =========================================================================
    KEYBOARD
    ========================================================================= */
@@ -3926,6 +4036,7 @@ document.getElementById('confirmModal').addEventListener('keydown', (e) => {
    ========================================================================= */
 function init() {
   const l1 = makeLayer('Sketch');
+  l1.base = true;
   state.layers.push(l1);
   state.activeLayerId = l1.id;
   renderLayerList();
