@@ -2893,25 +2893,40 @@ document.getElementById('imageUploadBtn').addEventListener('click', () => {
   _imageFileInput.click();
 });
 
-// Paste: grab any image data from the clipboard and place it at the viewport center.
-// Skipped when focus is in an input/textarea (the paste should target the field, not the
-// canvas — e.g. pasting "y=sin(x)" into the equation field).
+const CLIP_MARK = 'χplot selection';
+let pasteFallbackTimer = null;
+
+function isEditableTarget(t) {
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+}
+
+document.addEventListener('copy', (e) => {
+  if (isEditableTarget(e.target) || !state.selection || !e.clipboardData) return;
+  copySelection();
+  e.clipboardData.setData('text/plain', CLIP_MARK);
+  e.preventDefault();
+});
+
 window.addEventListener('paste', (e) => {
-  const t = e.target;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-  const items = e.clipboardData && e.clipboardData.items;
-  if (!items) return;
-  for (const item of items) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) {
-      e.preventDefault();
-      const blob = item.getAsFile();
-      if (!blob) continue;
-      const r = wrap.getBoundingClientRect();
-      const center = screenToWorld(r.width/2, r.height/2);
-      placeImageFromBlob(blob, center.x, center.y);
-      return;  // place only the first image
+  if (isEditableTarget(e.target)) return;
+  clearTimeout(pasteFallbackTimer);
+  pasteFallbackTimer = null;
+  const dt = e.clipboardData;
+  const fromChiplot = !!dt && dt.getData('text/plain') === CLIP_MARK;
+  if (dt && !fromChiplot) {
+    for (const item of dt.items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        e.preventDefault();
+        const r = wrap.getBoundingClientRect();
+        const center = screenToWorld(r.width/2, r.height/2);
+        placeImageFromBlob(blob, center.x, center.y);
+        return;
+      }
     }
   }
+  if (state.clipboard) { e.preventDefault(); pasteClipboard(); }
 });
 
 // Drag-and-drop: image files dropped onto the canvas are placed where the drop happens.
@@ -4870,8 +4885,18 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); redo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') { copySelection(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') { pasteClipboard(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+    if (e.target.isContentEditable || !state.selection) return;
+    copySelection();
+    try { navigator.clipboard.writeText(CLIP_MARK).catch(() => {}); } catch (_) {}
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
+    if (e.target.isContentEditable) return;
+    clearTimeout(pasteFallbackTimer);
+    pasteFallbackTimer = setTimeout(() => { pasteFallbackTimer = null; pasteClipboard(); }, 60);
+    return;
+  }
 
   if (e.key === 'Backspace' || e.key === 'Delete') {
     if (state.selection) { e.preventDefault(); deleteSelection(); }
