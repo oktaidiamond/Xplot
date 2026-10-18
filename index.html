@@ -705,19 +705,55 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
    ========================================================================= */
 function escapeHTML(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]); }
 
-const BOLD_ON = '\uE000', BOLD_OFF = '\uE001';
 const TEXT_BOX_DEFAULT_W = 320;
+const STYLE_KEYS = ['b', 'i', 'u'];
+const STYLE_MARKS = { b: ['\uE000', '\uE001'], i: ['\uE002', '\uE003'], u: ['\uE004', '\uE005'] };
+const STYLE_MARK_RE = /[\uE000-\uE005]/g;
 
-function textToHTML(text, display) {
-  let t = text || '';
-  if (display) t = t.replace(/(\\\]|\$\$)\n/g, '$1');
-  return escapeHTML(t)
-    .replace(/\uE000/g, '<b>')
-    .replace(/\uE001/g, '</b>')
-    .replace(/\n/g, '<br>');
+function parseStyled(text) {
+  const runs = [];
+  const f = { b: false, i: false, u: false };
+  let cur = '';
+  const push = () => { if (cur) { runs.push({ t: cur, b: f.b, i: f.i, u: f.u }); cur = ''; } };
+  for (const ch of text || '') {
+    const code = ch.charCodeAt(0) - 0xE000;
+    if (code >= 0 && code <= 5) {
+      push();
+      f[STYLE_KEYS[code >> 1]] = (code & 1) === 0;
+    } else cur += ch;
+  }
+  push();
+  return runs;
 }
 
-function plainText(text) { return (text || '').replace(/[\uE000\uE001]/g, ''); }
+function serializeStyled(runs) {
+  let out = '';
+  const f = { b: false, i: false, u: false };
+  for (const r of runs) {
+    if (!r.t) continue;
+    for (const k of STYLE_KEYS) if (f[k] && !r[k]) { out += STYLE_MARKS[k][1]; f[k] = false; }
+    for (const k of STYLE_KEYS) if (!f[k] && r[k]) { out += STYLE_MARKS[k][0]; f[k] = true; }
+    out += r.t;
+  }
+  for (const k of STYLE_KEYS) if (f[k]) out += STYLE_MARKS[k][1];
+  return out;
+}
+
+function textToHTML(text, display) {
+  let html = '';
+  for (const r of parseStyled(text)) {
+    let t = r.t;
+    if (display) t = t.replace(/(\\\]|\$\$)\n/g, '$1');
+    let h = escapeHTML(t).replace(/\n/g, '<br>');
+    if (r.u) h = '<u>' + h + '</u>';
+    if (r.i) h = '<i>' + h + '</i>';
+    if (r.b) h = '<b>' + h + '</b>';
+    html += h;
+  }
+  return html;
+}
+
+function plainText(text) { return (text || '').replace(STYLE_MARK_RE, ''); }
 
 function textFontPx(size, scale) {
   const raw = size * scale;
@@ -2243,9 +2279,10 @@ function enterTextEditMode(em, isNew) {
   const onKeydown = (e) => {
     e.stopPropagation();
     if (e.isComposing) return;
-    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'b') {
+    const fmt = { b: 'bold', i: 'italic', u: 'underline' }[e.key.toLowerCase()];
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && fmt) {
       e.preventDefault();
-      document.execCommand('bold');
+      document.execCommand(fmt);
       return;
     }
     if (e.key === 'Escape') {
@@ -2282,88 +2319,49 @@ function enterTextEditMode(em, isNew) {
 // keep their original delimited source in data-math-source — use that instead of the
 // visible rendered text, so we don't lose the user's actual input.
 function readRawSourceFromEl(root) {
-  // Walk children; flatten DOM into raw source text.
-  //
-  // contenteditable in Chromium models lines as:
-  //   "line1"  (loose text node, the first line)
-  //   <div>line2</div>  (subsequent lines wrapped in a div)
-  //   <div><br></div>   (an "empty" line — div with a sole <br> as a height marker)
-  //
-  // So each <div> or <p> = one logical line. We emit '\n' before the div's content
-  // (unless we're at the very start), then walk the div's contents WITHOUT treating
-  // its <br> children as additional newlines — they're just placeholders that make
-  // empty divs visible.
-  //
-  // <br> tags OUTSIDE a div context still produce a real newline (some browsers use
-  // <br> for shift-enter or for soft breaks).
-  let out = '';
-  let bold = false;
-  const isBold = (el) => {
-    if (!el || el === root) return false;
-    const fw = getComputedStyle(el).fontWeight;
-    const n = parseInt(fw, 10);
-    return (isNaN(n) ? (fw === 'bold' || fw === 'bolder' ? 700 : 400) : n) >= 600;
+  const runs = [];
+  let cur = { b: false, i: false, u: false };
+  let any = false;
+  const styleOf = (el) => {
+    const f = { b: false, i: false, u: false };
+    if (!el || el === root || !root.contains(el)) return f;
+    const cs = getComputedStyle(el);
+    const n = parseInt(cs.fontWeight, 10);
+    f.b = (isNaN(n) ? (/bold/.test(cs.fontWeight) ? 700 : 400) : n) >= 600;
+    f.i = cs.fontStyle === 'italic' || cs.fontStyle.startsWith('oblique');
+    for (let a = el; a && a !== root; a = a.parentElement) {
+      if ((getComputedStyle(a).textDecorationLine || '').includes('underline')) { f.u = true; break; }
+    }
+    return f;
   };
-  const emit = (str, parent) => {
+  const emit = (str, el) => {
     if (!str) return;
-    const b = isBold(parent);
-    if (b !== bold) { out += b ? BOLD_ON : BOLD_OFF; bold = b; }
-    out += str.replace(/[\uE000\uE001]/g, '');
+    cur = styleOf(el);
+    runs.push({ t: str.replace(STYLE_MARK_RE, ''), ...cur });
+    any = true;
   };
-  const walkInline = (node) => {
+  const newline = () => { runs.push({ t: '\n', ...cur }); any = true; };
+  const isBlock = (el) => el.tagName === 'DIV' || el.tagName === 'P';
+  const isPlaceholderBR = (br) => {
+    let blk = br.parentElement;
+    while (blk && blk !== root && !isBlock(blk)) blk = blk.parentElement;
+    if (!blk || blk === root) return false;
+    return blk.textContent === '' && blk.querySelectorAll('br').length === 1;
+  };
+  const walk = (node) => {
     for (const child of node.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
         emit(child.textContent, child.parentElement);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
-        if (child.dataset && child.dataset.mathSource) {
-          emit(child.dataset.mathSource, child.parentElement);
-        } else if (child.tagName === 'BR') {
-          out += '\n';
-        } else {
-          walkInline(child);
-        }
+        if (child.dataset && child.dataset.mathSource) emit(child.dataset.mathSource, child.parentElement);
+        else if (child.tagName === 'BR') { if (!isPlaceholderBR(child)) newline(); }
+        else if (isBlock(child)) { if (any) newline(); walk(child); any = true; }
+        else walk(child);
       }
     }
   };
-  const walkRoot = (node) => {
-    let isFirst = true;
-    for (const child of node.childNodes) {
-      if (child.nodeType === Node.TEXT_NODE) {
-        emit(child.textContent, child.parentElement);
-        isFirst = false;
-      } else if (child.nodeType === Node.ELEMENT_NODE) {
-        if (child.dataset && child.dataset.mathSource) {
-          emit(child.dataset.mathSource, child.parentElement);
-          isFirst = false;
-        } else if (child.tagName === 'BR') {
-          out += '\n';
-          isFirst = false;
-        } else if (child.tagName === 'DIV' || child.tagName === 'P') {
-          // Block element = one logical line. Emit \n before its contents (unless we're
-          // still at the start of the root), then walk inline-style: a sole <br> inside
-          // it is just a height marker and contributes NO additional newline.
-          if (!isFirst) out += '\n';
-          // Check if the only meaningful child is a single <br> (empty-line marker)
-          const significant = Array.from(child.childNodes).filter(n =>
-            !(n.nodeType === Node.TEXT_NODE && n.textContent === '') &&
-            !(n.nodeType === Node.ELEMENT_NODE && n.tagName === 'BR' && child.childNodes.length === 1)
-          );
-          if (significant.length === 0 && child.querySelector('br')) {
-            // empty line, the \n we just emitted is enough
-          } else {
-            walkInline(child);
-          }
-          isFirst = false;
-        } else {
-          walkInline(child);
-          isFirst = false;
-        }
-      }
-    }
-  };
-  walkRoot(root);
-  if (bold) out += BOLD_OFF;
-  return out.replace(/\uE000\uE001/g, '').replace(/\uE001\uE000/g, '');
+  walk(root);
+  return serializeStyled(runs);
 }
 
 function exitTextEditMode(em, wasNew) {
