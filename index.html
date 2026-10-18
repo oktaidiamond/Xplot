@@ -110,6 +110,16 @@ body { font-family: system-ui, -apple-system, sans-serif; }
     </div>
 
     <div class="action-cluster">
+      <button class="ctrl-btn icon-only" id="openBoardBtn" title="Open a board file">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9.5a2 2 0 0 0-2-2h-7l-2-2.5H5a2 2 0 0 0-2 2z"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn icon-only" id="saveBoardBtn" title="Download board file">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4v11"/><path d="M7 10.5 12 15.5l5-5"/><path d="M4 17v1.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V17"/>
+        </svg>
+      </button>
       <button class="ctrl-btn icon-only" id="undoBtn" title="Undo (⌘Z)">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 14 4 9l5-5"/>
@@ -160,6 +170,11 @@ body { font-family: system-ui, -apple-system, sans-serif; }
     <div class="canvas-wrap" id="canvasWrap">
       <canvas id="mainCanvas"></canvas>
       <div class="embed-layer" id="embedLayer"></div>
+      <div class="graph-interact-bar" id="graphInteractBar" style="display:none">
+        <span class="gib-hint" id="gibHint"></span>
+        <button class="ctrl-btn" id="gibEdit" type="button">Edit equation</button>
+        <button class="ctrl-btn primary" id="gibDone" type="button">Done</button>
+      </div>
       <!-- Top-right floating toolbar: grid + reset view (always visible) -->
       <div class="canvas-view-toolbar">
         <button class="ctrl-btn icon-only" id="gridBtn" title="Toggle grid">
@@ -217,13 +232,7 @@ body { font-family: system-ui, -apple-system, sans-serif; }
               <span class="gs-sep">to</span>
               <input type="number" id="gs_zMax" value="10" step="any">
             </label>
-            <div class="gs-half gs-actions-half">
-              <label class="gs-toggle">
-                <input type="checkbox" id="gs_showBox" checked>
-                <span class="gs-toggle-track"><span class="gs-toggle-thumb"></span></span>
-                <span class="gs-toggle-label">Show box</span>
-              </label>
-            </div>
+            <div class="gs-half"></div>
           </div>
           <div class="gs-row gs-row-labels">
             <div class="gs-half gs-labels-group">
@@ -243,6 +252,11 @@ body { font-family: system-ui, -apple-system, sans-serif; }
             <div class="gs-half gs-actions-half">
               <div class="gs-row-actions">
                 <button type="button" class="gs-action" id="gs_autoFitBtn" title="Fit y range to function values">Fit y to plot</button>
+                <label class="gs-toggle">
+                  <input type="checkbox" id="gs_showBox" checked>
+                  <span class="gs-toggle-track"><span class="gs-toggle-thumb"></span></span>
+                  <span class="gs-toggle-label">Show box</span>
+                </label>
                 <label class="gs-toggle">
                   <input type="checkbox" id="gs_showTicks">
                   <span class="gs-toggle-track"><span class="gs-toggle-thumb"></span></span>
@@ -460,6 +474,14 @@ input.zoom-readout:hover { background: var(--chrome-bg-2); }
 input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome-bg-2); }
 
 .canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #0e1014; }
+.graph-interact-bar {
+  position: absolute; z-index: 45;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--chrome-bg); border: 1px solid var(--chrome-line-strong);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 4px 4px 4px 10px;
+  white-space: nowrap;
+}
+.gib-hint { font-family: var(--mono); font-size: 11px; color: var(--chrome-text-soft); letter-spacing: 0.03em; margin-right: 4px; }
 .canvas-view-toolbar {
   position: absolute;
   top: 12px;
@@ -488,8 +510,10 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
 .embed.selected { border: 1px solid var(--accent) !important; pointer-events: none; }
 .embed.text-embed.selected { pointer-events: auto !important; cursor: move !important; }
 .embed.text-embed { border-width: 0 !important; padding: 0.12em 0.2em; min-height: 1.54em; overflow-wrap: break-word; }
+.embed.text-embed.selected, .embed.text-embed.editing { border-width: 0 !important; }
 .embed.text-embed:hover { outline: 1px dashed var(--accent); }
-.embed.text-embed.selected, .embed.text-embed.editing { outline: 1px solid var(--accent); }
+.embed.text-embed.selected, .embed.text-embed.editing, .embed.text-embed.editing:focus { outline: 1px solid var(--accent); }
+.embed.text-embed :is(b, strong, i, em, u), .embed.text-embed.editing span { line-height: 0; }
 .embed.text-embed .katex-display, .embed.text-embed .katex-display > .katex { text-align: left !important; }
 .embed.editing { border: 1px solid var(--accent) !important; pointer-events: auto !important; cursor: text !important; min-width: 8px; }
 .embed.editing:focus { outline: none; }
@@ -498,7 +522,7 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
 .embed img { display: block; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(3px); }
-.modal { background: var(--chrome-bg); border: 1px solid var(--chrome-line); border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); display: flex; flex-direction: column; max-height: 90vh; }
+.modal { background: var(--chrome-bg); border: 1px solid var(--chrome-line); border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); display: flex; flex-direction: column; max-height: calc(100vh - 24px); }
 .graph-modal { width: min(900px, 92vw); }
 .modal-head { padding: 14px 18px; border-bottom: 1px solid var(--chrome-line); display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--chrome-text-soft); }
 .modal-close { background: none; border: none; cursor: pointer; font-size: 22px; color: var(--chrome-text-soft); line-height: 1; }
@@ -508,7 +532,7 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
 .modal-foot { padding: 12px 18px; border-top: 1px solid var(--chrome-line); display: flex; gap: 8px; align-items: center; }
 .modal-foot .ctrl-btn:last-child { margin-left: auto; }
 
-.graph-body { display: grid; grid-template-rows: auto auto 1fr; gap: 14px; height: min(700px, 82vh); padding: 22px; box-sizing: border-box; flex: none; }
+.graph-body { display: grid; grid-template-rows: auto auto minmax(150px, 1fr); gap: 14px; height: min(700px, 82vh); padding: 22px; box-sizing: border-box; flex: 1 1 auto; min-height: 0; }
 .graph-body .graph-preview { min-height: 0; }
 /* Side-by-side row: equation input on the left, rendered LaTeX on the right */
 .g-input-row { display: grid; grid-template-columns: auto 1fr 1fr; gap: 12px; align-items: center; margin-bottom: 0; }
@@ -705,7 +729,7 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
    ========================================================================= */
 function escapeHTML(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]); }
 
-const TEXT_BOX_DEFAULT_W = 320;
+const TEXT_BOX_DEFAULT_W = 720;
 const STYLE_KEYS = ['b', 'i', 'u'];
 const STYLE_MARKS = { b: ['\uE000', '\uE001'], i: ['\uE002', '\uE003'], u: ['\uE004', '\uE005'] };
 const STYLE_MARK_RE = /[\uE000-\uE005]/g;
@@ -931,7 +955,7 @@ function renderLayerList() {
       const m = layer.name.match(/^(Plot:\s*)(.+)$/);
       if (m && window.renderMathInElement) {
         const tex = normalizeForLatex(m[2]);
-        display.innerHTML = escapeHTML(m[1]) + '<span class="layer-math">$' + tex + '$</span>';
+        display.innerHTML = escapeHTML(m[1]) + '<span class="layer-math">$' + escapeHTML(tex) + '$</span>';
         try {
           window.renderMathInElement(display, {
             delimiters: [{ left: '$', right: '$', display: false }],
@@ -1140,6 +1164,7 @@ function render() {
   }
 
   drawSelectionUI();
+  drawGraphInteractUI();
   drawEraserCursor();
   positionEmbeds();
   // Update the zoom readout unless the user is actively editing it (so their in-progress
@@ -1197,8 +1222,10 @@ function drawGrid(w, h) {
     }
     ctx.stroke();
   }
-  if (25 * v.scale >= 6) lines(25, 0.06);
-  if (100 * v.scale >= 12) lines(100, 0.14);
+  const k = Math.ceil(Math.log(15 / (25 * v.scale)) / Math.log(4));
+  const minor = 25 * Math.pow(4, k);
+  lines(minor, 0.06);
+  lines(minor * 4, 0.14);
   ctx.restore();
 }
 
@@ -1229,7 +1256,13 @@ function drawStroke(s, c) {
     if (s._img.complete && s._img.naturalWidth) {
       c.save();
       if (typeof s.opacity === 'number') c.globalAlpha = s.opacity;
-      c.drawImage(s._img, s.x, s.y, s.w, s.h);
+      if (s.rot) {
+        c.translate(s.x + s.w / 2, s.y + s.h / 2);
+        c.rotate(s.rot * Math.PI / 180);
+        c.drawImage(s._img, -s.w / 2, -s.h / 2, s.w, s.h);
+      } else {
+        c.drawImage(s._img, s.x, s.y, s.w, s.h);
+      }
       c.restore();
     }
     return;
@@ -1247,12 +1280,12 @@ function drawStroke(s, c) {
     c.fillStyle = s.color;
     c.font = (s.italic ? 'italic ' : '') + s.size + 'px "KaTeX_Main", "Latin Modern Roman", Georgia, serif';
     c.textBaseline = 'alphabetic';
-    c.textAlign = s.anchor === 'middle-right' ? 'right' : 'center';
+    c.textAlign = s.anchor === 'middle-right' ? 'right' : s.anchor === 'middle-left' ? 'left' : 'center';
     const m = c.measureText(s.text);
     const ascent = m.actualBoundingBoxAscent || s.size * 0.7;
     const descent = m.actualBoundingBoxDescent || 0;
     let baselineY, drawX = s.x;
-    if (s.anchor === 'middle-right' || s.anchor === 'middle-center') {
+    if (s.anchor === 'middle-right' || s.anchor === 'middle-center' || s.anchor === 'middle-left') {
       // Visible vertical center of the glyph at s.y.
       baselineY = s.y + (ascent - descent) / 2;
     } else {
@@ -1380,6 +1413,19 @@ function canvasPointerDown(e) {
     return;
   }
 
+  if (state.graphInteract) {
+    const gi = state.graphInteract;
+    const g = state.graphs[gi.gid];
+    if (e.button === 0 && g && pointInGraph(gi.gid, wp)) {
+      gi.drag = { sx: sp.x, sy: sp.y, moved: false, settings: JSON.parse(JSON.stringify(g.settings)) };
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+    exitGraphInteract();
+    return;
+  }
+
   // If a text embed is currently being edited, clicking the canvas commits the edit
   // instead of starting a new action (draw, select, etc.). The contenteditable's blur
   // handler will run exitTextEditMode automatically.
@@ -1444,6 +1490,12 @@ function canvasPointerDown(e) {
     return;
   }
 
+  const prevDown = state.lastDown;
+  state.lastDown = { t: performance.now(), x: sp.x, y: sp.y };
+  if ((state.tool === 'pen' || state.tool === 'eraser') && prevDown && state.lastDown.t - prevDown.t < 450 && Math.hypot(sp.x - prevDown.x, sp.y - prevDown.y) < 6) {
+    return;
+  }
+
   if (state.tool === 'pen' || state.tool === 'eraser') {
     state.drawing = true;
     // When size is locked, the stroke's world-width is calibrated against the scale at
@@ -1475,6 +1527,17 @@ canvas.addEventListener('pointermove', (e) => {
     state.view.x = p.startVx + (p.startSx - sp.x) / state.view.scale;
     state.view.y = p.startVy + (p.startSy - sp.y) / state.view.scale;
     render();
+    return;
+  }
+
+  if (state.graphInteract) {
+    const gi = state.graphInteract;
+    if (gi.drag) {
+      if (Math.hypot(sp.x - gi.drag.sx, sp.y - gi.drag.sy) > 2) gi.drag.moved = true;
+      if (gi.drag.moved) applyInteractDrag(sp);
+      return;
+    }
+    canvas.style.cursor = pointInGraph(gi.gid, wp) ? 'grab' : 'default';
     return;
   }
 
@@ -1542,12 +1605,23 @@ canvas.addEventListener('pointerup', (e) => {
     canvas.style.cursor = state.tool === 'pen' ? 'crosshair' : 'default';
     return;
   }
+  if (state.graphInteract && state.graphInteract.drag) {
+    const moved = state.graphInteract.drag.moved;
+    state.graphInteract.drag = null;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    canvas.style.cursor = 'grab';
+    if (moved) regenInteract(false);
+    return;
+  }
   if (state.drawing && state.currentStroke) {
     const layer = activeLayer();
     if (layer) {
       layer.strokes.push(state.currentStroke);
       const action = state.currentStroke.mode === 'eraser' ? 'Erase' : 'Draw';
       pushHistory(action);
+      state.lastTap = state.currentStroke.points.length === 1
+        ? { stroke: state.currentStroke, layerId: layer.id, histId: state.history[state.historyIndex].id, t: performance.now() }
+        : null;
     }
     state.currentStroke = null;
     state.drawing = false;
@@ -1593,6 +1667,11 @@ wrap.addEventListener('wheel', (e) => {
   e.preventDefault();
   const sp = eventScreenCoords(e);
   const wp0 = screenToWorld(sp.x, sp.y);
+  if (state.graphInteract && pointInGraph(state.graphInteract.gid, wp0)) {
+    const dyz = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    applyInteractZoom(wp0, Math.max(-100, Math.min(100, dyz)) * (e.ctrlKey ? 0.012 : 0.004));
+    return;
+  }
   const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
   const k = e.ctrlKey ? 0.012 : 0.004;
   const factor = Math.exp(-Math.max(-100, Math.min(100, dy)) * k);
@@ -1610,6 +1689,12 @@ wrap.addEventListener('contextmenu', e => e.preventDefault());
 wrap.addEventListener('dblclick', (e) => {
   const sp = eventScreenCoords(e);
   const wp = screenToWorld(sp.x, sp.y);
+  if (state.graphInteract && pointInGraph(state.graphInteract.gid, wp)) {
+    const gid = state.graphInteract.gid;
+    exitGraphInteract();
+    openGraphModalForGraphId(gid);
+    return;
+  }
 
   // First, check if there's a text embed under the click. The embed's own dblclick handler
   // can be blocked when the embed has been auto-selected (pointer-events: none on .selected),
@@ -1666,17 +1751,236 @@ wrap.addEventListener('dblclick', (e) => {
       }
     }
   }
-  if (best && bestDist < hitDist) {
-    // Only open re-edit if this groupId is in state.graphs (i.e., it's a function plot, not blank axes)
-    if (state.graphs && state.graphs[best.graphId]) {
+  if (!(best && bestDist < hitDist && state.graphs[best.graphId])) {
+    best = null;
+    for (let i = state.layers.length - 1; i >= 0 && !best; i--) {
+      const layer = state.layers[i];
+      if (!layer.visible) continue;
+      for (const gid of new Set(layer.strokes.map(st => st.graphId).filter(g => g && state.graphs[g] && state.graphs[g].layerId === layer.id))) {
+        if (pointInGraph(gid, wp)) { best = { graphId: gid }; bestDist = 0; break; }
+      }
+    }
+  }
+  if (best && bestDist < hitDist && state.graphs && state.graphs[best.graphId]) {
+    discardDoubleClickTap();
+    if (state.graphInteract && state.graphInteract.gid === best.graphId) {
+      exitGraphInteract();
       openGraphModalForGraphId(best.graphId);
+    } else {
+      if (state.graphInteract) exitGraphInteract();
+      enterGraphInteract(best.graphId);
     }
   }
 });
 
+function discardDoubleClickTap() {
+  const tap = state.lastTap;
+  state.lastTap = null;
+  if (!tap || performance.now() - tap.t > 900) return;
+  const layer = state.layers.find(l => l.id === tap.layerId);
+  if (layer) layer.strokes = layer.strokes.filter(st => st !== tap.stroke);
+  const top = state.history[state.history.length - 1];
+  if (top && top.id === tap.histId && state.historyIndex === state.history.length - 1) {
+    state.history.pop();
+    state.historyIndex = state.history.length - 1;
+    renderHistoryPanel();
+    syncUndoRedoButtons();
+  }
+  render();
+}
+
+function graphWorldBounds(gid) {
+  const g = state.graphs[gid];
+  const layer = g && state.layers.find(l => l.id === g.layerId);
+  if (!layer) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const st of layer.strokes) {
+    if (st.graphId !== gid) continue;
+    const b = strokeBounds(st);
+    if (!isFinite(b.x)) continue;
+    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+  }
+  return isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+}
+
+function pointInGraph(gid, wp) {
+  const b = graphWorldBounds(gid);
+  if (!b) return false;
+  const pad = 8 / state.view.scale;
+  return wp.x >= b.x - pad && wp.x <= b.x + b.w + pad && wp.y >= b.y - pad && wp.y <= b.y + b.h + pad;
+}
+
+function enterGraphInteract(gid) {
+  const g = state.graphs[gid];
+  if (!g) return;
+  let parsed;
+  try { parsed = parseEquation(g.latex); } catch (_) { openGraphModalForGraphId(gid); return; }
+  if (state.selection) commitSelection();
+  state.graphInteract = { gid, parsed, startJSON: JSON.stringify(g.settings), drag: null, key: null, sample: null, full: true, timer: null };
+  document.getElementById('gibHint').textContent = (g.is3D ? 'drag to rotate' : 'drag to pan') + ' · scroll to zoom · double-click to edit';
+  document.getElementById('graphInteractBar').style.display = 'flex';
+  canvas.style.cursor = 'grab';
+  render();
+}
+
+function regenInteract(fast) {
+  const gi = state.graphInteract;
+  if (!gi) return;
+  const g = state.graphs[gi.gid];
+  const layer = g && state.layers.find(l => l.id === g.layerId);
+  if (!layer) { exitGraphInteract(true); return; }
+  const opts = { fast, allowEmpty: true };
+  if (g.is3D) {
+    const st = g.settings;
+    const key = [st.xMin, st.xMax, st.yMin, st.yMax, st.zMin, st.zMax].join(',');
+    if (gi.key !== key || (!fast && !gi.full)) {
+      gi.sample = sample3D(gi.parsed, st, fast ? 30 : SURFACE_N);
+      gi.key = key;
+      gi.full = !fast;
+    }
+    opts.sample = gi.sample;
+  }
+  let strokes;
+  try { strokes = buildGraphStrokes({ ...g, graphId: gi.gid }, gi.parsed, opts); } catch (_) { return; }
+  layer.strokes = layer.strokes.filter(st => st.graphId !== gi.gid).concat(strokes);
+  render();
+}
+
+function scheduleFullInteractRegen() {
+  const gi = state.graphInteract;
+  if (!gi) return;
+  clearTimeout(gi.timer);
+  gi.timer = setTimeout(() => regenInteract(false), 180);
+}
+
+function graphRanges(st) {
+  const r = (a, b, da, db) => (b > a ? [a, b] : [da, db]);
+  return { x: r(st.xMin, st.xMax, -10, 10), y: r(st.yMin, st.yMax, -6, 6), z: r(st.zMin, st.zMax, -10, 10) };
+}
+
+function applyInteractDrag(sp) {
+  const gi = state.graphInteract;
+  const g = state.graphs[gi.gid];
+  if (!g) return;
+  const d = gi.drag;
+  const dsx = sp.x - d.sx, dsy = sp.y - d.sy;
+  if (g.is3D) {
+    g.settings.azim = (((d.settings.azim ?? 25) - dsx * 0.5) % 360 + 360) % 360;
+    g.settings.elev = Math.max(-89, Math.min(89, (d.settings.elev ?? 20) + dsy * 0.5));
+  } else {
+    const R = graphRanges(d.settings);
+    const ww = g.screenSpan / g.viewScale, wh = ww * 0.6;
+    const ux = ww / (R.x[1] - R.x[0]), uy = wh / (R.y[1] - R.y[0]);
+    let lx = dsx / state.view.scale, ly = dsy / state.view.scale;
+    if (g.rotation) {
+      const a = -g.rotation * Math.PI / 180;
+      [lx, ly] = [lx * Math.cos(a) - ly * Math.sin(a), lx * Math.sin(a) + ly * Math.cos(a)];
+    }
+    g.settings.xMin = R.x[0] - lx / ux; g.settings.xMax = R.x[1] - lx / ux;
+    g.settings.yMin = R.y[0] + ly / uy; g.settings.yMax = R.y[1] + ly / uy;
+  }
+  regenInteract(true);
+}
+
+function applyInteractZoom(wp, amount) {
+  const gi = state.graphInteract;
+  const g = state.graphs[gi.gid];
+  if (!g) return;
+  const f = Math.exp(amount);
+  const st = g.settings;
+  const R = graphRanges(st);
+  if (g.is3D) {
+    for (const k of ['x', 'y', 'z']) {
+      const c = (R[k][0] + R[k][1]) / 2, h = (R[k][1] - R[k][0]) / 2 * f;
+      st[k + 'Min'] = c - h; st[k + 'Max'] = c + h;
+    }
+  } else {
+    const ww = g.screenSpan / g.viewScale, wh = ww * 0.6;
+    const ux = ww / (R.x[1] - R.x[0]), uy = wh / (R.y[1] - R.y[0]);
+    let lx = wp.x - g.originX, ly = wp.y - g.originY;
+    if (g.rotation) {
+      const a = -g.rotation * Math.PI / 180;
+      [lx, ly] = [lx * Math.cos(a) - ly * Math.sin(a), lx * Math.sin(a) + ly * Math.cos(a)];
+    }
+    const mx = (R.x[0] + R.x[1]) / 2 + lx / ux;
+    const my = (R.y[0] + R.y[1]) / 2 - ly / uy;
+    st.xMin = mx + (R.x[0] - mx) * f; st.xMax = mx + (R.x[1] - mx) * f;
+    st.yMin = my + (R.y[0] - my) * f; st.yMax = my + (R.y[1] - my) * f;
+  }
+  regenInteract(true);
+  scheduleFullInteractRegen();
+}
+
+function roundRange(v, span) {
+  const dec = Math.max(0, Math.min(10, Math.ceil(-Math.log10(span)) + 3));
+  return +v.toFixed(dec);
+}
+
+function exitGraphInteract(silent) {
+  const gi = state.graphInteract;
+  if (!gi) return;
+  clearTimeout(gi.timer);
+  state.graphInteract = null;
+  document.getElementById('graphInteractBar').style.display = 'none';
+  canvas.style.cursor = state.tool === 'eraser' ? 'none' : state.tool === 'text' ? 'text' : (state.tool === 'pen' || state.tool === 'select') ? 'crosshair' : 'default';
+  const g = state.graphs[gi.gid];
+  if (!g || silent) { render(); return; }
+  const st = g.settings;
+  for (const k of ['x', 'y', 'z']) {
+    const lo = st[k + 'Min'], hi = st[k + 'Max'];
+    if (typeof lo === 'number' && typeof hi === 'number' && hi > lo) {
+      st[k + 'Min'] = roundRange(lo, hi - lo);
+      st[k + 'Max'] = roundRange(hi, hi - lo);
+    }
+  }
+  if (typeof st.azim === 'number') st.azim = Math.round(st.azim * 10) / 10;
+  if (typeof st.elev === 'number') st.elev = Math.round(st.elev * 10) / 10;
+  if (JSON.stringify(st) === gi.startJSON) { render(); return; }
+  state.graphInteract = gi;
+  regenInteract(false);
+  state.graphInteract = null;
+  render();
+  pushHistory('Adjust graph');
+}
+
+function drawGraphInteractUI() {
+  const bar = document.getElementById('graphInteractBar');
+  const gi = state.graphInteract;
+  if (!gi) return;
+  const b = graphWorldBounds(gi.gid);
+  if (!b) return;
+  const a = worldToScreen(b.x, b.y), c = worldToScreen(b.x + b.w, b.y + b.h);
+  const pad = 8;
+  ctx.save();
+  ctx.strokeStyle = '#6b8cce';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(a.x - pad, a.y - pad, c.x - a.x + pad * 2, c.y - a.y + pad * 2);
+  ctx.restore();
+  const r = wrap.getBoundingClientRect();
+  const bw = bar.offsetWidth || 360, bh = bar.offsetHeight || 32;
+  let left = (a.x + c.x) / 2 - bw / 2;
+  let top = a.y - pad - bh - 8;
+  if (top < 8) top = c.y + pad + 8;
+  left = Math.max(8, Math.min(r.width - bw - 8, left));
+  top = Math.max(8, Math.min(r.height - bh - 8, top));
+  bar.style.left = Math.round(left) + 'px';
+  bar.style.top = Math.round(top) + 'px';
+}
+
+document.getElementById('gibDone').addEventListener('click', () => exitGraphInteract());
+document.getElementById('gibEdit').addEventListener('click', () => {
+  const gi = state.graphInteract;
+  if (!gi) return;
+  const gid = gi.gid;
+  exitGraphInteract();
+  openGraphModalForGraphId(gid);
+});
+
 function cloneStroke(s) {
   if (s.kind === 'image') {
-    return { kind: 'image', x: s.x, y: s.y, w: s.w, h: s.h, src: s.src, opacity: s.opacity };
+    return { kind: 'image', x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot || 0, src: s.src, opacity: s.opacity };
   }
   if (s.kind === 'text') {
     return { kind: 'text', x: s.x, y: s.y, text: s.text, size: s.size, color: s.color, anchor: s.anchor, italic: s.italic, graphId: s.graphId, opacity: s.opacity };
@@ -1732,15 +2036,18 @@ canvas.addEventListener('pointerenter', (e) => {
 function strokeBounds(s) {
   // Image strokes carry their own bbox directly.
   if (s.kind === 'image') {
-    return { x: s.x, y: s.y, w: s.w, h: s.h };
+    if (!s.rot) return { x: s.x, y: s.y, w: s.w, h: s.h };
+    const a = s.rot * Math.PI / 180, ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
+    const bw = s.w * ca + s.h * sa, bh = s.w * sa + s.h * ca;
+    return { x: s.x + s.w / 2 - bw / 2, y: s.y + s.h / 2 - bh / 2, w: bw, h: bh };
   }
   // Text-kind strokes have a single (x, y) position and a size — approximate the bounds
   // as a small box around the anchor so they get picked by box-selection normally.
   if (s.kind === 'text') {
     const w = s.size * Math.max(1, s.text.length) * 0.6;
     const h = s.size;
-    const xLeft = s.anchor === 'middle-right' ? s.x - w : s.x - w/2;
-    const yTop = (s.anchor === 'middle-right' || s.anchor === 'middle-center') ? s.y - h/2 : s.y;
+    const xLeft = s.anchor === 'middle-right' ? s.x - w : s.anchor === 'middle-left' ? s.x : s.x - w/2;
+    const yTop = (s.anchor && s.anchor.startsWith('middle-')) ? s.y - h/2 : s.y;
     return { x: xLeft, y: yTop, w, h };
   }
   if (s.kind === 'polys') {
@@ -1884,6 +2191,7 @@ function applyTextWidthDrag(side, wp) {
   let wv = dir * ((wp.x - ax) * ux + (wp.y - ay) * uy);
   wv = Math.max(em.data.size * 1.5 * sc, wv);
   em.w = wv / sc;
+  em.data.autoW = false;
   fitTextEmbedToContent(em);
   const hv = em.h * sc;
   const ncx = ax + dir * ux * wv / 2 + vx * hv / 2;
@@ -1922,10 +2230,6 @@ function commitSelection() {
       continue;
     }
     if (s.kind === 'image') {
-      // Images are positioned by top-left + width/height. Transform the center, scale
-      // both dimensions, then re-derive the top-left so the image is still anchored from
-      // the same conceptual point. Rotation is stored on the stroke for future use (not
-      // currently rendered, since canvas-drawn images aren't rotated yet).
       const icx = s.x + s.w/2, icy = s.y + s.h/2;
       const dx = icx - origCx, dy = icy - origCy;
       const nx = (dx * cos - dy * sin) * sc;
@@ -1933,6 +2237,7 @@ function commitSelection() {
       s.w *= sc; s.h *= sc;
       s.x = (nx + cx) - s.w/2;
       s.y = (ny + cy) - s.h/2;
+      s.rot = (((s.rot || 0) + (sel.rotation || 0)) % 360 + 360) % 360;
       layer.strokes.push(s);
       continue;
     }
@@ -1956,6 +2261,16 @@ function commitSelection() {
     s.width = s.width * sc;
     layer.strokes.push(s);
   }
+  const movedGraphs = new Set(sel.strokes.map(st => st.graphId).filter(g => g && state.graphs[g]));
+  for (const gid of movedGraphs) {
+    const g = state.graphs[gid];
+    const dx = g.originX - origCx, dy = g.originY - origCy;
+    g.originX = (dx * cos - dy * sin) * sc + cx;
+    g.originY = (dx * sin + dy * cos) * sc + cy;
+    g.viewScale = (g.viewScale || state.view.scale) / sc;
+    g.rotation = (g.rotation || 0) + (sel.rotation || 0);
+    g.layerId = layer.id;
+  }
   for (const em of sel.embeds) {
     em.el && em.el.classList.remove('selected');
     const ecx = em.x + em.w/2, ecy = em.y + em.h/2;
@@ -1969,6 +2284,7 @@ function commitSelection() {
     // For text embeds, also scale the font size so the text grows with the box
     if (em.type === 'text' && em.data && typeof em.data.size === 'number') {
       em.data.size *= sc;
+      if (em.data.maxW) em.data.maxW *= sc;
     }
     layer.embeds.push(em);
   }
@@ -2007,9 +2323,10 @@ function copySelection() {
   state.clipboard = {
     bbox: { ...sel.bbox },
     strokes: sel.strokes.map(cloneStroke),
-    embedsData: sel.embeds.map(em => ({ type: em.type, x: em.x, y: em.y, w: em.w, h: em.h, rotation: em.rotation || 0, data: em.data })),
+    embedsData: sel.embeds.map(em => ({ type: em.type, x: em.x, y: em.y, w: em.w, h: em.h, rotation: em.rotation || 0, data: { ...em.data } })),
     rotation: sel.rotation || 0,
     scale: sel.scale || 1,
+    graphs: Object.fromEntries([...new Set(sel.strokes.map(st => st.graphId).filter(g => g && state.graphs[g]))].map(g => [g, JSON.parse(JSON.stringify(state.graphs[g]))])),
   };
 }
 
@@ -2033,8 +2350,25 @@ function pasteClipboard() {
     scale: cb.scale,
     lifted: true,
   };
+  const idMap = {};
+  for (const st of newSel.strokes) {
+    if (!st.graphId) continue;
+    if (!(st.graphId in idMap)) {
+      const nid = (st.graphId[0] === 'A' ? 'A' : 'G') + (nextGraphId++);
+      idMap[st.graphId] = nid;
+      const src = cb.graphs && cb.graphs[st.graphId];
+      if (src) {
+        const g = JSON.parse(JSON.stringify(src));
+        g.originX += dx; g.originY += dy;
+        g.layerId = layer.id;
+        g.graphId = nid;
+        state.graphs[nid] = g;
+      }
+    }
+    st.graphId = idMap[st.graphId];
+  }
   for (const ed of cb.embedsData) {
-    const em = createEmbedFromData(ed.type, ed.data, ed.x + dx, ed.y + dy, ed.w, ed.h);
+    const em = createEmbedFromData(ed.type, { ...ed.data }, ed.x + dx, ed.y + dy, ed.w, ed.h);
     em.rotation = ed.rotation;
     em.el.classList.add('selected');
     newSel.embeds.push(em);
@@ -2164,8 +2498,8 @@ function attachEmbedDrag(em) {
 function placeInlineText(wx, wy) {
   const layer = activeLayer(); if (!layer) return;
   const size = 28 / state.view.scale;
-  const data = { text: '', size, color: '#1a1a1a' };
   const w = TEXT_BOX_DEFAULT_W / state.view.scale;
+  const data = { text: '', size, color: '#1a1a1a', autoW: true, maxW: w };
   const em = createEmbedFromData('text', data, wx - 0.2 * size, wy - 0.77 * size, w, 1.54 * size);
   layer.embeds.push(em);
   render();
@@ -2231,7 +2565,6 @@ function enterTextEditMode(em, isNew) {
   em.el.contentEditable = 'true';
   em.el.spellcheck = false;
   em.el.style.whiteSpace = 'pre-wrap';
-  em.el.style.outline = 'none';
   em.el.style.cursor = 'text';
   // CRITICAL: don't seed contenteditable with raw \n characters — Chromium's contenteditable
   // models lines via <br>/<div>, NOT \n in text nodes. If we put \n chars in the text node,
@@ -2432,6 +2765,13 @@ function fitTextEmbedToContent(em) {
   const prev = { t: el.style.transform, w: el.style.width, h: el.style.height, f: el.style.fontSize };
   el.style.transform = 'none';
   el.style.fontSize = fpx + 'px';
+  if (em.data.autoW) {
+    el.style.height = 'auto';
+    el.style.width = 'max-content';
+    const natPx = el.getBoundingClientRect().width;
+    const maxW = em.data.maxW || em.w;
+    em.w = Math.min(maxW, Math.max(size * 1.5, natPx * 1.02 / ls + size * 0.08));
+  }
   el.style.width = (em.w * ls) + 'px';
   el.style.height = 'auto';
   const hPx = el.getBoundingClientRect().height;
@@ -2709,11 +3049,11 @@ function defaultGraphSettings() {
     zMin: -10, zMax: 10,
     showTicks: false,
     showBox: true,
-    azim: 30, elev: 22,
+    azim: 25, elev: 20,
   };
 }
 
-const graph3DView = { azim: 30, elev: 22 };
+const graph3DView = { azim: 25, elev: 20 };
 let graphMode3D = false;
 let graphYAutoSet = false;
 
@@ -2816,8 +3156,8 @@ function writeGraphSettings(s) {
   document.getElementById('gs_zMax').value = s.zMax ?? 10;
   document.getElementById('gs_showTicks').checked = !!s.showTicks;
   document.getElementById('gs_showBox').checked = s.showBox ?? true;
-  graph3DView.azim = s.azim ?? 30;
-  graph3DView.elev = s.elev ?? 22;
+  graph3DView.azim = s.azim ?? 25;
+  graph3DView.elev = s.elev ?? 20;
 }
 
 // Wait until Plotly and mathjs are available. They're loaded with `defer` so the app
@@ -3180,6 +3520,11 @@ function baseLayout(settings, xMin, xMax, yMin, yMax) {
     zerolinecolor: '#c9c5b8',
     range: [yMin, yMax],
   };
+  for (const ax of [xAxis, yAxis]) {
+    ax.showline = !!settings.showBox;
+    ax.mirror = !!settings.showBox;
+    ax.linecolor = '#c9c5b8';
+  }
   if (settings.showTicks) {
     // Auto-pick a "nice" step for each axis based on its range, aiming for ~10 ticks across.
     xAxis.dtick = niceTickStep(xMax - xMin, 10);
@@ -3273,7 +3618,7 @@ function parseEquation(latex) {
 // Output coordinates are in world units (origin at originX, originY), with the
 // math viewport (settings.xMin..xMax) × (yMin..yMax) mapped into a screen-space box of
 // `screenSpan` pixels wide.
-function generateEquationStrokes(parsed, settings, originX, originY, screenSpan, viewScale, graphId) {
+function generateEquationStrokes(parsed, settings, originX, originY, screenSpan, viewScale, graphId, color, fast) {
   let { xMin: xmin, xMax: xmax, yMin: ymin, yMax: ymax } = settings;
   if (!(xmax > xmin)) { xmin = -10; xmax = 10; }
   if (!(ymax > ymin)) { ymin = -6; ymax = 6; }
@@ -3296,7 +3641,7 @@ function generateEquationStrokes(parsed, settings, originX, originY, screenSpan,
   let segments = [];
 
   if (parsed.kind === 'y_of_x') {
-    const N = 600;
+    const N = fast ? 300 : 600;
     let cur = [];
     let prevY = null;
     const flush = () => { if (cur.length >= 2) segments.push(cur); cur = []; };
@@ -3333,7 +3678,7 @@ function generateEquationStrokes(parsed, settings, originX, originY, screenSpan,
     flush();
   } else if (parsed.kind === 'implicit') {
     // Marching squares on a fine grid: find zero contour of F(x,y).
-    const NX = 200, NY = 120;
+    const NX = fast ? 90 : 200, NY = fast ? 54 : 120;
     const dx = (xmax - xmin) / NX;
     const dy = (ymax - ymin) / NY;
     const F = new Float64Array((NX + 1) * (NY + 1));
@@ -3392,7 +3737,7 @@ function generateEquationStrokes(parsed, settings, originX, originY, screenSpan,
 
   return segments.map(pts => ({
     points: pts,
-    color: state.penColor,
+    color: color || state.penColor,
     width: lineWidth,
     mode: 'pen',
     graphId,
@@ -3654,8 +3999,8 @@ function fmtTick(v, step) {
 }
 
 function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
-  const th = (settings.azim ?? 30) * Math.PI / 180;
-  const ph = (settings.elev ?? 22) * Math.PI / 180;
+  const th = (settings.azim ?? 25) * Math.PI / 180;
+  const ph = (settings.elev ?? 20) * Math.PI / 180;
   const ct = Math.cos(th), st = Math.sin(th), cp = Math.cos(ph), sp = Math.sin(ph);
   const rv = [-st, ct, 0], uv = [-sp * ct, -sp * st, cp], dv = [cp * ct, cp * st, sp];
   const proj = (x, y, z) => [cx + unit * (rv[0] * x + rv[1] * y), cy - unit * (uv[0] * x + uv[1] * y + uv[2] * z), dv[0] * x + dv[1] * y + dv[2] * z];
@@ -3818,7 +4163,7 @@ function draw3DPreview() {
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
   const settings = { ...preview3DState.settings, azim: graph3DView.azim, elev: graph3DView.elev };
-  const scene = build3DScene(preview3DState.drawSample, settings, w / 2, h / 2, Math.min(w, h) * 0.28, 1, hexToRgba(state.penColor, 0.55));
+  const scene = build3DScene(preview3DState.drawSample, settings, w / 2, h / 2, Math.min(w, h) * 0.28, 1, hexToRgba(state.penColor, 0.5));
   drawPolyItems(c, scene.items);
   for (const lab of scene.labels) {
     drawStroke({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: '#1a1a1a', anchor: 'middle-center', opacity: lab.opacity }, c);
@@ -3878,154 +4223,118 @@ function autoFit3D(parsed) {
   scheduleLivePreview();
 }
 
+function rotateStrokeAbout(s, ox, oy, deg) {
+  const a = deg * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a);
+  const R = (x, y) => { const dx = x - ox, dy = y - oy; return [ox + dx * c - dy * sn, oy + dx * sn + dy * c]; };
+  if (s.kind === 'polys') {
+    s.items = s.items.map(it => {
+      const q = it.p.slice();
+      for (let i = 0; i < q.length; i += 2) { const r = R(q[i], q[i + 1]); q[i] = r[0]; q[i + 1] = r[1]; }
+      return { ...it, p: q };
+    });
+    s._b = null;
+  } else if (s.kind === 'text') {
+    const r = R(s.x, s.y); s.x = r[0]; s.y = r[1];
+  } else if (s.points) {
+    s.points = s.points.map(p => { const r = R(p.x, p.y); return { x: r[0], y: r[1] }; });
+  }
+}
+
+function buildGraphStrokes(rec, parsed, opts = {}) {
+  const { originX, originY, screenSpan, settings } = rec;
+  const vs = rec.viewScale || state.view.scale;
+  const gid = rec.graphId;
+  const color = rec.color || state.penColor;
+  const px = 1 / vs;
+  const out = [];
+  if (is3DKind(parsed.kind)) {
+    const sample = opts.sample || sample3D(parsed, settings, opts.fast ? 30 : SURFACE_N);
+    if (!sample.any && !opts.allowEmpty) throw new Error('no surface in this range — check the equation or ranges');
+    const scene = build3DScene(sample, settings, originX, originY, (screenSpan / vs) * 0.27, px, hexToRgba(color, 0.5));
+    out.push({ kind: 'polys', items: scene.items, graphId: gid });
+    for (const lab of scene.labels) {
+      out.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: '#1a1a1a', anchor: 'middle-center', graphId: gid, opacity: lab.opacity });
+    }
+  } else {
+    const curve = generateEquationStrokes(parsed, settings, originX, originY, screenSpan, vs, gid, color, opts.fast);
+    if (!curve.length && !opts.allowEmpty) throw new Error('no plot data — check the equation');
+    const ww = screenSpan / vs, wh = ww * 0.6;
+    if (settings.showBox) {
+      const pad = 34 * px;
+      const x0 = originX - ww / 2 - pad, y0 = originY - wh / 2 - pad, x1 = originX + ww / 2 + pad, y1 = originY + wh / 2 + pad;
+      out.push({ points: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }, { x: x0, y: y0 }], color: '#1a1a1a', width: 0.8 * px, mode: 'pen', graphId: gid, opacity: 0.2 });
+    }
+    out.push(...buildAxes2DStrokes(settings, originX, originY, screenSpan, vs, gid, color));
+    out.push(...curve);
+    if (settings.showTicks) {
+      for (const lab of computeTickLabels(settings, originX, originY, screenSpan, vs)) {
+        out.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: 11 * px, color: '#1a1a1a', anchor: lab.anchor, graphId: gid, opacity: 0.7 });
+      }
+    }
+    let { xMin: xmin, xMax: xmax, yMin: ymin, yMax: ymax } = settings;
+    if (!(xmax > xmin)) { xmin = -10; xmax = 10; }
+    if (!(ymax > ymin)) { ymin = -6; ymax = 6; }
+    const xAxisY = originY - (axisAnchor(ymin, ymax) - (ymin + ymax) / 2) * (wh / (ymax - ymin));
+    const yAxisX = originX + (axisAnchor(xmin, xmax) - (xmin + xmax) / 2) * (ww / (xmax - xmin));
+    const xl = (settings.xLabel || '').trim(), yl = (settings.yLabel || '').trim();
+    if (xl) out.push({ kind: 'text', x: originX + ww / 2 + 7 * px, y: xAxisY, text: xl, size: 15 * px, italic: true, color: '#1a1a1a', anchor: 'middle-left', graphId: gid, opacity: 0.8 });
+    if (yl) out.push({ kind: 'text', x: yAxisX, y: originY - wh / 2 - 13 * px, text: yl, size: 15 * px, italic: true, color: '#1a1a1a', anchor: 'middle-center', graphId: gid, opacity: 0.8 });
+  }
+  if (rec.rotation) for (const st of out) rotateStrokeAbout(st, originX, originY, rec.rotation);
+  return out;
+}
+
 document.getElementById('graphPlace').onclick = () => {
   const latexFn = document.getElementById('g1d_fn').value;
-  // Empty input: Place is a no-op for adding content, but still close the modal
-  // since the user clearly meant to dismiss it.
   if (!latexFn.trim()) {
     state.editingGraphId = null;
     closeModal('graphModal');
     return;
   }
-
   const settings = readGraphSettings();
-
-  const r = wrap.getBoundingClientRect();
-  const center = screenToWorld(r.width/2, r.height/2);
-  const screenSpan = Math.min(r.width * 0.7, 720);
-  const previousActiveLayerId = state.activeLayerId;
-
-  // If editing an existing graph, remove its old strokes (axes + curve) and reuse its origin
-  let originX = center.x, originY = center.y;
-  let layer = null;
-  let editing = false;
-  if (state.editingGraphId && state.graphs[state.editingGraphId]) {
-    const g = state.graphs[state.editingGraphId];
-    originX = g.originX;
-    originY = g.originY;
-    editing = true;
-    const targetLayer = state.layers.find(l => l.id === g.layerId);
-    if (targetLayer) {
-      // Filter out the old graph's strokes (curve, axes, tick marks, tick labels — all
-      // tagged with graphId). They'll be regenerated from the updated settings below.
-      targetLayer.strokes = targetLayer.strokes.filter(s => s.graphId !== state.editingGraphId);
-      layer = targetLayer;
-    }
-  }
-
-  // Parse the equation up-front so we can fail fast and avoid creating an orphan layer
   let parsed;
-  try {
-    parsed = parseEquation(latexFn);
-  } catch (err) {
-    showGraphPreviewError('parse error: ' + err.message);
-    return;
-  }
+  try { parsed = parseEquation(latexFn); }
+  catch (err) { showGraphPreviewError('parse error: ' + err.message); return; }
 
-  // Otherwise, create a fresh layer named with the full equation. Plot layers go to the
-  // BOTTOM of the stack (index 0) so the user's sketch strokes naturally appear over them.
-  if (!editing) {
+  const old = state.editingGraphId && state.graphs[state.editingGraphId] ? state.graphs[state.editingGraphId] : null;
+  const graphId = old ? state.editingGraphId : 'G' + nextGraphId;
+  const r = wrap.getBoundingClientRect();
+  const center = screenToWorld(r.width / 2, r.height / 2);
+  const rec = old ? { ...old } : {
+    originX: center.x, originY: center.y,
+    screenSpan: Math.min(r.width * 0.7, 720),
+    viewScale: state.view.scale,
+    rotation: 0,
+    color: state.penColor,
+  };
+  if (!rec.viewScale) rec.viewScale = state.view.scale;
+  rec.graphId = graphId;
+  rec.latex = latexFn;
+  rec.settings = settings;
+  rec.is3D = is3DKind(parsed.kind);
+
+  let strokes;
+  try { strokes = buildGraphStrokes(rec, parsed); }
+  catch (err) { showGraphPreviewError(/^no (plot data|surface)/.test(err.message) ? err.message : 'parse error: ' + err.message); return; }
+
+  const previousActiveLayerId = state.activeLayerId;
+  let layer = old ? state.layers.find(l => l.id === old.layerId) : null;
+  if (!layer) {
     const labelTrunc = parsed.original.length > 32 ? parsed.original.slice(0, 32) + '…' : parsed.original;
     layer = makeLayer('Plot: ' + labelTrunc);
     state.layers.unshift(layer);
-    renderLayerList();
   }
-
-  const graphId = editing ? state.editingGraphId : 'G' + (nextGraphId++);
-
-  if (is3DKind(parsed.kind)) {
-    const dropNewLayer = () => {
-      if (!editing) {
-        state.layers = state.layers.filter(l => l.id !== layer.id);
-        renderLayerList();
-      }
-    };
-    let sample;
-    try { sample = sample3D(parsed, settings, SURFACE_N); }
-    catch (err) { showGraphPreviewError('parse error: ' + err.message); dropNewLayer(); return; }
-    if (!sample.any) { showGraphPreviewError('no surface in this range — check the equation or ranges'); dropNewLayer(); return; }
-    const px = 1 / state.view.scale;
-    const unit = (screenSpan / state.view.scale) * 0.27;
-    const scene = build3DScene(sample, settings, originX, originY, unit, px, hexToRgba(state.penColor, 0.55));
-    layer.strokes.push({ kind: 'polys', items: scene.items, graphId });
-    for (const lab of scene.labels) {
-      layer.strokes.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: '#1a1a1a', anchor: 'middle-center', graphId, opacity: lab.opacity });
-    }
-    state.graphs[graphId] = { latex: latexFn, originX, originY, screenSpan, layerId: layer.id, settings, is3D: true };
-    if (!editing) state.activeLayerId = previousActiveLayerId;
-    state.editingGraphId = null;
-    closeModal('graphModal');
-    setTool('pen');
-    render();
-    renderLayerList();
-    pushHistory(editing ? 'Edit graph' : 'Add graph');
-    return;
-  }
-
-  // Generate the curve strokes (may throw if expression is malformed at compile time)
-  let curveStrokes;
-  try {
-    curveStrokes = generateEquationStrokes(parsed, settings, originX, originY, screenSpan, state.view.scale, graphId);
-  } catch (err) {
-    showGraphPreviewError('parse error: ' + err.message);
-    if (!editing) {
-      state.layers = state.layers.filter(l => l.id !== layer.id);
-      renderLayerList();
-    }
-    return;
-  }
-  if (!curveStrokes.length) {
-    showGraphPreviewError('no plot data — check the equation');
-    if (!editing) {
-      state.layers = state.layers.filter(l => l.id !== layer.id);
-      renderLayerList();
-    }
-    return;
-  }
-
-  // Add 2D axes underneath (same graphId so they group on selection / re-edit)
-  const axesStrokes = buildAxes2DStrokes(settings, originX, originY, screenSpan, state.view.scale, graphId, state.penColor);
-  for (const s of axesStrokes) layer.strokes.push(s);
-  for (const s of curveStrokes) layer.strokes.push(s);
-
-  // Tick labels: numbered text drawn directly on the canvas (as 'text' kind strokes)
-  // alongside each tick mark. Canvas-rendered means they share the exact same coordinate
-  // transform as the tick marks themselves — no sub-pixel drift between embed and canvas
-  // across zoom levels, which was a real problem when these were HTML embeds.
-  if (settings.showTicks) {
-    const labels = computeTickLabels(settings, originX, originY, screenSpan, state.view.scale);
-    const labelSize = 11 / state.view.scale;  // world units — scales with view, like strokes do
-    for (const lab of labels) {
-      layer.strokes.push({
-        kind: 'text',
-        x: lab.x, y: lab.y,
-        text: lab.text,
-        size: labelSize,
-        color: '#1a1a1a',
-        anchor: lab.anchor,
-        graphId,
-        opacity: 0.7,
-      });
-    }
-  }
-
-  state.graphs[graphId] = {
-    latex: latexFn,
-    originX, originY,
-    screenSpan,
-    layerId: layer.id,
-    settings,
-  };
-
-  // Restore the user's previous active layer so they aren't bumped onto the graph layer
-  if (!editing) state.activeLayerId = previousActiveLayerId;
-
+  if (!old) nextGraphId++;
+  layer.strokes = layer.strokes.filter(st => st.graphId !== graphId).concat(strokes);
+  rec.layerId = layer.id;
+  state.graphs[graphId] = rec;
+  if (!old) state.activeLayerId = previousActiveLayerId;
   state.editingGraphId = null;
   closeModal('graphModal');
   setTool('pen');
   render();
   renderLayerList();
-  pushHistory(editing ? 'Edit graph' : 'Add graph');
+  pushHistory(old ? 'Edit graph' : 'Add graph');
 };
 
 // Open the graph modal pre-filled with an existing graph's source and switch to edit mode.
@@ -4104,7 +4413,7 @@ function restoreSnapshot(snap) {
     const snapLayer = snap.layers[i];
     const layer = state.layers[i];
     for (const ed of snapLayer.embeds) {
-      const em = createEmbedFromData(ed.type, ed.data, ed.x, ed.y, ed.w, ed.h);
+      const em = createEmbedFromData(ed.type, { ...ed.data }, ed.x, ed.y, ed.w, ed.h);
       em.id = ed.id;
       em.rotation = ed.rotation;
       em.el.dataset.embedId = em.id;
@@ -4120,7 +4429,7 @@ function restoreSnapshot(snap) {
   nextLayerId = snap.nextLayerId;
   nextEmbedId = snap.nextEmbedId;
   if (snap.nextGraphId) nextGraphId = snap.nextGraphId;
-  state.graphs = snap.graphs || {};
+  state.graphs = JSON.parse(JSON.stringify(snap.graphs || {}));
 
   renderLayerList();
   render();
@@ -4214,6 +4523,7 @@ document.getElementById('toolCluster').addEventListener('click', (e) => {
 });
 
 function setTool(t) {
+  if (state.graphInteract) { exitGraphInteract(); }
   state.tool = t;
   document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
   if (t !== 'select') cancelSelection();
@@ -4376,8 +4686,9 @@ function doFullReset() {
   state.penColor = '#1a1a1a';
   state.bgColor = '#ffffff';
   state.penSize = 4;
-  state.eraserSize = 40;
+  state.eraserSize = 32;
   state.showGrid = false;
+  state.graphs = {};
 
   // Reset ID counters
   nextLayerId = 1;
@@ -4536,6 +4847,10 @@ document.getElementById('zoomSlider').addEventListener('input', e => {
    KEYBOARD
    ========================================================================= */
 document.addEventListener('keydown', (e) => {
+  if (state.graphInteract && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+    if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); exitGraphInteract(); return; }
+    if (!['Shift', 'Meta', 'Control', 'Alt'].includes(e.key)) exitGraphInteract();
+  }
   // Escape closes any open modal regardless of focus context
   if (e.key === 'Escape') {
     const confirmM = document.getElementById('confirmModal');
@@ -4618,6 +4933,68 @@ document.getElementById('confirmModal').addEventListener('keydown', (e) => {
 /* =========================================================================
    INIT
    ========================================================================= */
+function boardData() {
+  const snap = snapshotState();
+  const sel = state.selection;
+  if (sel && sel.lifted) {
+    const L = snap.layers.find(l => l.id === sel.layerId);
+    if (L) {
+      L.strokes.push(...sel.strokes.map(cloneStroke));
+      L.embeds.push(...sel.embeds.map(em => ({ id: em.id, type: em.type, x: em.x, y: em.y, w: em.w, h: em.h, rotation: em.rotation || 0, data: { ...em.data } })));
+    }
+  }
+  return { app: 'chiplot', version: 1, snapshot: snap, view: { ...state.view }, bgColor: state.bgColor };
+}
+
+function applyBoard(data, label, freshHistory) {
+  if (!data || !data.snapshot || !Array.isArray(data.snapshot.layers) || !data.snapshot.layers.length) {
+    throw new Error('not a board file');
+  }
+  if (state.graphInteract) exitGraphInteract(true);
+  if (document.querySelector('.embed.editing')) document.querySelector('.embed.editing').blur();
+  restoreSnapshot(data.snapshot);
+  const v = data.view;
+  if (v && isFinite(v.scale) && v.scale > 0) state.view = { x: +v.x || 0, y: +v.y || 0, scale: Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +v.scale)) };
+  if (typeof data.bgColor === 'string' && /^#[0-9a-f]{6}$/i.test(data.bgColor)) {
+    state.bgColor = data.bgColor;
+    document.getElementById('bgColor').value = data.bgColor;
+  }
+  if (freshHistory) { state.history = []; state.historyIndex = -1; }
+  syncZoomSlider();
+  render();
+  pushHistory(label);
+}
+
+function downloadBoard() {
+  const blob = new Blob([JSON.stringify(boardData())], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'chiplot-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+const _boardFileInput = document.createElement('input');
+_boardFileInput.type = 'file';
+_boardFileInput.accept = '.json,application/json';
+_boardFileInput.style.display = 'none';
+document.body.appendChild(_boardFileInput);
+_boardFileInput.addEventListener('change', () => {
+  const f = _boardFileInput.files[0];
+  _boardFileInput.value = '';
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { applyBoard(JSON.parse(reader.result), 'Open file', false); }
+    catch (_) { showConfirmModal("Couldn't open that file", "It isn't a χplot board file.", () => {}); }
+  };
+  reader.readAsText(f);
+});
+document.getElementById('openBoardBtn').addEventListener('click', () => _boardFileInput.click());
+document.getElementById('saveBoardBtn').addEventListener('click', downloadBoard);
+
 function init() {
   const l1 = makeLayer('Sketch');
   l1.base = true;
