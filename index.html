@@ -179,8 +179,6 @@ body { font-family: system-ui, -apple-system, sans-serif; }
           </svg>
         </button>
       </div>
-      <!-- Watermark -->
-      <div class="canvas-watermark">made by Kai Spada</div>
     </div>
   </div>
 
@@ -206,11 +204,26 @@ body { font-family: system-ui, -apple-system, sans-serif; }
               <input type="number" id="gs_xMax" value="10" step="any">
             </label>
             <label class="gs-field gs-range">
-              <span class="gs-label">y range</span>
+              <span class="gs-label"><span class="only-2d-inline">y range</span><span class="only-3d-inline">y domain</span></span>
               <input type="number" id="gs_yMin" value="-6" step="any">
               <span class="gs-sep">to</span>
               <input type="number" id="gs_yMax" value="6" step="any">
             </label>
+          </div>
+          <div class="gs-row gs-row-ranges only-3d">
+            <label class="gs-field gs-range">
+              <span class="gs-label">z range</span>
+              <input type="number" id="gs_zMin" value="-10" step="any">
+              <span class="gs-sep">to</span>
+              <input type="number" id="gs_zMax" value="10" step="any">
+            </label>
+            <div class="gs-half gs-actions-half">
+              <label class="gs-toggle">
+                <input type="checkbox" id="gs_showBox" checked>
+                <span class="gs-toggle-track"><span class="gs-toggle-thumb"></span></span>
+                <span class="gs-toggle-label">Show box</span>
+              </label>
+            </div>
           </div>
           <div class="gs-row gs-row-labels">
             <div class="gs-half gs-labels-group">
@@ -218,9 +231,13 @@ body { font-family: system-ui, -apple-system, sans-serif; }
                 <span class="gs-label">x label</span>
                 <input type="text" id="gs_xLabel" value="x" autocomplete="off" spellcheck="false">
               </label>
-              <label class="gs-field gs-label-field">
+              <label class="gs-field gs-label-field" id="gs_yLabelField">
                 <span class="gs-label">y label</span>
                 <input type="text" id="gs_yLabel" value="y" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="gs-field gs-label-field only-3d" id="gs_zLabelField">
+                <span class="gs-label">z label</span>
+                <input type="text" id="gs_zLabel" value="z" autocomplete="off" spellcheck="false">
               </label>
             </div>
             <div class="gs-half gs-actions-half">
@@ -443,20 +460,6 @@ input.zoom-readout:hover { background: var(--chrome-bg-2); }
 input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome-bg-2); }
 
 .canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #0e1014; }
-.canvas-watermark {
-  position: absolute;
-  bottom: 12px;
-  right: 16px;
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 11px;
-  color: #999;
-  opacity: 0.5;
-  pointer-events: none;
-  user-select: none;
-  z-index: 10;
-  letter-spacing: 0.02em;
-}
 .canvas-view-toolbar {
   position: absolute;
   top: 12px;
@@ -484,6 +487,10 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
 .embed:hover { border-color: var(--accent); }
 .embed.selected { border: 1px solid var(--accent) !important; pointer-events: none; }
 .embed.text-embed.selected { pointer-events: auto !important; cursor: move !important; }
+.embed.text-embed { border-width: 0 !important; padding: 0.12em 0.2em; min-height: 1.54em; overflow-wrap: break-word; }
+.embed.text-embed:hover { outline: 1px dashed var(--accent); }
+.embed.text-embed.selected, .embed.text-embed.editing { outline: 1px solid var(--accent); }
+.embed.text-embed .katex-display, .embed.text-embed .katex-display > .katex { text-align: left !important; }
 .embed.editing { border: 1px solid var(--accent) !important; pointer-events: auto !important; cursor: text !important; min-width: 8px; }
 .embed.editing:focus { outline: none; }
 .embed.editing .katex { user-select: none; }
@@ -547,8 +554,16 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
    field above. x-label keeps its fixed compact width. */
 .gs-labels-group { gap: 18px; }
 .gs-labels-group .gs-label-field { flex: 0 0 auto; }
-.gs-labels-group .gs-label-field:last-child { flex: 1 1 0; min-width: 0; }
-.gs-labels-group .gs-label-field:last-child input[type="text"] { flex: 1 1 0; width: auto; min-width: 0; }
+.graph-modal:not(.mode-3d) #gs_yLabelField, .graph-modal.mode-3d #gs_zLabelField { flex: 1 1 0; min-width: 0; }
+.graph-modal:not(.mode-3d) #gs_yLabelField input[type="text"], .graph-modal.mode-3d #gs_zLabelField input[type="text"] { flex: 1 1 0; width: auto; min-width: 0; }
+.graph-modal.mode-3d .gs-label-field input[type="text"] { width: 64px; }
+.gs-row-ranges .gs-range > .gs-label { min-width: calc(8ch + 0.4em); }
+.only-3d, .only-3d-inline { display: none !important; }
+.graph-modal.mode-3d .only-3d { display: flex !important; }
+.graph-modal.mode-3d .only-3d-inline { display: inline !important; }
+.graph-modal.mode-3d .only-2d-inline { display: none !important; }
+.graph-preview canvas.p3d { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.graph-preview canvas.p3d:active { cursor: grabbing; }
 /* Actions half: push actions to the right edge of the row */
 .gs-actions-half { justify-content: flex-end; }
 /* Label fields */
@@ -689,6 +704,25 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
    STATE — vector-based infinite canvas
    ========================================================================= */
 function escapeHTML(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]); }
+
+const BOLD_ON = '\uE000', BOLD_OFF = '\uE001';
+const TEXT_BOX_DEFAULT_W = 320;
+
+function textToHTML(text, display) {
+  let t = text || '';
+  if (display) t = t.replace(/(\\\]|\$\$)\n/g, '$1');
+  return escapeHTML(t)
+    .replace(/\uE000/g, '<b>')
+    .replace(/\uE001/g, '</b>')
+    .replace(/\n/g, '<br>');
+}
+
+function plainText(text) { return (text || '').replace(/[\uE000\uE001]/g, ''); }
+
+function textFontPx(size, scale) {
+  const raw = size * scale;
+  return raw >= 6 ? Math.round(raw) : raw;
+}
 
 const state = {
   tool: 'pen',
@@ -1132,6 +1166,19 @@ function drawGrid(w, h) {
   ctx.restore();
 }
 
+function drawPolyItems(c, items) {
+  c.lineCap = 'butt';
+  c.lineJoin = 'round';
+  for (const it of items) {
+    const p = it.p;
+    c.beginPath();
+    c.moveTo(p[0], p[1]);
+    for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]);
+    if (it.f) { c.closePath(); c.fillStyle = it.f; c.fill(); }
+    if (it.s) { c.strokeStyle = it.s; c.lineWidth = it.w; c.stroke(); }
+  }
+}
+
 function drawStroke(s, c) {
   c = c || ctx;
   if (s.kind === 'image') {
@@ -1151,18 +1198,25 @@ function drawStroke(s, c) {
     }
     return;
   }
+  if (s.kind === 'polys') {
+    c.save();
+    if (typeof s.opacity === 'number') c.globalAlpha = s.opacity;
+    drawPolyItems(c, s.items);
+    c.restore();
+    return;
+  }
   if (s.kind === 'text') {
     c.save();
     if (typeof s.opacity === 'number') c.globalAlpha = s.opacity;
     c.fillStyle = s.color;
-    c.font = s.size + 'px "KaTeX_Main", "Latin Modern Roman", Georgia, serif';
+    c.font = (s.italic ? 'italic ' : '') + s.size + 'px "KaTeX_Main", "Latin Modern Roman", Georgia, serif';
     c.textBaseline = 'alphabetic';
     c.textAlign = s.anchor === 'middle-right' ? 'right' : 'center';
     const m = c.measureText(s.text);
     const ascent = m.actualBoundingBoxAscent || s.size * 0.7;
     const descent = m.actualBoundingBoxDescent || 0;
     let baselineY, drawX = s.x;
-    if (s.anchor === 'middle-right') {
+    if (s.anchor === 'middle-right' || s.anchor === 'middle-center') {
       // Visible vertical center of the glyph at s.y.
       baselineY = s.y + (ascent - descent) / 2;
     } else {
@@ -1232,6 +1286,14 @@ function drawSelectionUI() {
     ctx.rect(c.x - HANDLE_SIZE/2, c.y - HANDLE_SIZE/2, HANDLE_SIZE, HANDLE_SIZE);
     ctx.fill(); ctx.stroke();
   }
+  if (singleTextSelection()) {
+    for (const k of ['e', 'w']) {
+      const c = corners[k];
+      ctx.beginPath();
+      ctx.rect(c.x - HANDLE_SIZE/2 + 1, c.y - HANDLE_SIZE, HANDLE_SIZE - 2, HANDLE_SIZE * 2);
+      ctx.fill(); ctx.stroke();
+    }
+  }
   // Rotate handle (circle)
   ctx.beginPath();
   ctx.arc(corners.rotate.x, corners.rotate.y, HANDLE_SIZE / 2 + 1, 0, Math.PI * 2);
@@ -1262,13 +1324,15 @@ function selectionCornersScreen() {
   const ux = dxU / len, uy = dyU / len;
   corners.rotate = { x: topMid.x + ux * 24, y: topMid.y + uy * 24, attachX: topMid.x, attachY: topMid.y };
   corners.center = centerScreen;
+  corners.e = { x: (corners.ne.x + corners.se.x) / 2, y: (corners.ne.y + corners.se.y) / 2 };
+  corners.w = { x: (corners.nw.x + corners.sw.x) / 2, y: (corners.nw.y + corners.sw.y) / 2 };
   return corners;
 }
 
 /* =========================================================================
    POINTER EVENTS — main canvas
    ========================================================================= */
-canvas.addEventListener('pointerdown', (e) => {
+function canvasPointerDown(e) {
   const sp = eventScreenCoords(e);
   const wp = screenToWorld(sp.x, sp.y);
 
@@ -1301,6 +1365,11 @@ canvas.addEventListener('pointerdown', (e) => {
         startAngle,
         startRotation: state.selection.rotation || 0,
       };
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (handle === 'e' || handle === 'w') {
+      state.selDrag = { mode: 'width-' + handle };
       canvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -1353,7 +1422,8 @@ canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
     render();
   }
-});
+}
+canvas.addEventListener('pointerdown', canvasPointerDown);
 
 canvas.addEventListener('pointermove', (e) => {
   const sp = eventScreenCoords(e);
@@ -1399,6 +1469,9 @@ canvas.addEventListener('pointermove', (e) => {
       if (e.shiftKey) next = Math.round(next / 45) * 45;
       sel.rotation = next;
       render();
+    } else if (sd.mode.startsWith('width-')) {
+      applyTextWidthDrag(sd.mode.slice(6), wp);
+      render();
     } else if (sd.mode.startsWith('resize-')) {
       // factor = how much further the pointer is from the anchor than the original corner was
       const d1 = Math.hypot(sp.x - sd.anchorSx, sp.y - sd.anchorSy);
@@ -1417,6 +1490,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (handle === 'rotate') canvas.style.cursor = 'grab';
     else if (handle === 'nw' || handle === 'se') canvas.style.cursor = 'nwse-resize';
     else if (handle === 'ne' || handle === 'sw') canvas.style.cursor = 'nesw-resize';
+    else if (handle === 'e' || handle === 'w') canvas.style.cursor = 'ew-resize';
     else if (pointInSelection(wp)) canvas.style.cursor = 'move';
     else canvas.style.cursor = 'crosshair';
   }
@@ -1535,6 +1609,19 @@ wrap.addEventListener('dblclick', (e) => {
     if (!layer.visible) continue;
     for (const s of layer.strokes) {
       if (!s.graphId) continue;
+      if (s.kind === 'polys') {
+        const b = strokeBounds(s);
+        if (wp.x < b.x - hitDist || wp.x > b.x + b.w + hitDist || wp.y < b.y - hitDist || wp.y > b.y + b.h + hitDist) continue;
+        for (const it of s.items) {
+          const p = it.p;
+          if (it.f && pointInPoly(wp.x, wp.y, p)) { bestDist = 0; best = s; break; }
+          for (let i = 0; i + 3 < p.length; i += 2) {
+            const d = pointToSegmentDist(wp.x, wp.y, p[i], p[i+1], p[i+2], p[i+3]);
+            if (d < bestDist) { bestDist = d; best = s; }
+          }
+        }
+        continue;
+      }
       if (s.kind === 'text' || !s.points) continue;
       for (let i = 0; i < s.points.length - 1; i++) {
         const a = s.points[i], b = s.points[i+1];
@@ -1550,6 +1637,36 @@ wrap.addEventListener('dblclick', (e) => {
     }
   }
 });
+
+function cloneStroke(s) {
+  if (s.kind === 'image') {
+    return { kind: 'image', x: s.x, y: s.y, w: s.w, h: s.h, src: s.src, opacity: s.opacity };
+  }
+  if (s.kind === 'text') {
+    return { kind: 'text', x: s.x, y: s.y, text: s.text, size: s.size, color: s.color, anchor: s.anchor, italic: s.italic, graphId: s.graphId, opacity: s.opacity };
+  }
+  if (s.kind === 'polys') {
+    return { kind: 'polys', items: s.items, graphId: s.graphId, opacity: s.opacity };
+  }
+  return { color: s.color, width: s.width, mode: s.mode, points: s.points.map(p => ({ x: p.x, y: p.y })), graphId: s.graphId, opacity: s.opacity };
+}
+
+function translateStroke(s, dx, dy) {
+  const c = cloneStroke(s);
+  if (c.kind === 'image' || c.kind === 'text') { c.x += dx; c.y += dy; }
+  else if (c.kind === 'polys') c.items = c.items.map(it => ({ ...it, p: it.p.map((v, i) => v + (i % 2 ? dy : dx)) }));
+  else c.points = c.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+  return c;
+}
+
+function pointInPoly(x, y, p) {
+  let inside = false;
+  for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+    const xi = p[i], yi = p[i+1], xj = p[j], yj = p[j+1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
 
 function pointToSegmentDist(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
@@ -1587,8 +1704,22 @@ function strokeBounds(s) {
     const w = s.size * Math.max(1, s.text.length) * 0.6;
     const h = s.size;
     const xLeft = s.anchor === 'middle-right' ? s.x - w : s.x - w/2;
-    const yTop = s.anchor === 'middle-right' ? s.y - h/2 : s.y;
+    const yTop = (s.anchor === 'middle-right' || s.anchor === 'middle-center') ? s.y - h/2 : s.y;
     return { x: xLeft, y: yTop, w, h };
+  }
+  if (s.kind === 'polys') {
+    if (!s._b) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const it of s.items) {
+        const p = it.p;
+        for (let i = 0; i < p.length; i += 2) {
+          if (p[i] < minX) minX = p[i]; if (p[i] > maxX) maxX = p[i];
+          if (p[i+1] < minY) minY = p[i+1]; if (p[i+1] > maxY) maxY = p[i+1];
+        }
+      }
+      s._b = isFinite(minX) ? { x: minX, y: minY, w: maxX - minX, h: maxY - minY } : { x: 0, y: 0, w: 0, h: 0 };
+    }
+    return s._b;
   }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const p of s.points) {
@@ -1687,7 +1818,44 @@ function hitSelectionHandle(sp) {
     const dx = sp.x - c[k].x, dy = sp.y - c[k].y;
     if (Math.abs(dx) <= HANDLE_SIZE && Math.abs(dy) <= HANDLE_SIZE) return k;
   }
+  if (singleTextSelection()) {
+    for (const k of ['e','w']) {
+      if (Math.hypot(sp.x - c[k].x, sp.y - c[k].y) <= HANDLE_SIZE * 1.4) return k;
+    }
+  }
   return null;
+}
+
+function singleTextSelection() {
+  const s = state.selection;
+  if (!s || !s.lifted || s.strokes.length || s.embeds.length !== 1) return null;
+  return s.embeds[0].type === 'text' ? s.embeds[0] : null;
+}
+
+function applyTextWidthDrag(side, wp) {
+  const sel = state.selection;
+  const em = singleTextSelection();
+  if (!em) return;
+  const b = sel.bbox;
+  const sc = sel.scale || 1;
+  const r = (sel.rotation || 0) * Math.PI / 180;
+  const ux = Math.cos(r), uy = Math.sin(r), vx = -Math.sin(r), vy = Math.cos(r);
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  const hw = b.w * sc / 2, hh = b.h * sc / 2;
+  const dir = side === 'e' ? 1 : -1;
+  const ax = cx - dir * ux * hw - vx * hh;
+  const ay = cy - dir * uy * hw - vy * hh;
+  let wv = dir * ((wp.x - ax) * ux + (wp.y - ay) * uy);
+  wv = Math.max(em.data.size * 1.5 * sc, wv);
+  em.w = wv / sc;
+  fitTextEmbedToContent(em);
+  const hv = em.h * sc;
+  const ncx = ax + dir * ux * wv / 2 + vx * hv / 2;
+  const ncy = ay + dir * uy * wv / 2 + vy * hv / 2;
+  b.w = em.w; b.h = em.h;
+  b.x = ncx - b.w / 2; b.y = ncy - b.h / 2;
+  em.x = sel._origCx - em.w / 2;
+  em.y = sel._origCy - em.h / 2;
 }
 
 function commitSelection() {
@@ -1703,6 +1871,20 @@ function commitSelection() {
   const origCx = sel._origCx, origCy = sel._origCy;
 
   for (const s of sel.strokes) {
+    if (s.kind === 'polys') {
+      s.items = s.items.map(it => {
+        const q = new Array(it.p.length);
+        for (let i = 0; i < it.p.length; i += 2) {
+          const dx = it.p[i] - origCx, dy = it.p[i+1] - origCy;
+          q[i] = (dx * cos - dy * sin) * sc + cx;
+          q[i+1] = (dx * sin + dy * cos) * sc + cy;
+        }
+        return { ...it, p: q, w: it.w ? it.w * sc : it.w };
+      });
+      s._b = null;
+      layer.strokes.push(s);
+      continue;
+    }
     if (s.kind === 'image') {
       // Images are positioned by top-left + width/height. Transform the center, scale
       // both dimensions, then re-derive the top-left so the image is still anchored from
@@ -1788,7 +1970,7 @@ function copySelection() {
   const sel = state.selection;
   state.clipboard = {
     bbox: { ...sel.bbox },
-    strokes: sel.strokes.map(s => s.kind === 'text' ? { ...s } : ({ ...s, points: s.points.map(p => ({ ...p })) })),
+    strokes: sel.strokes.map(cloneStroke),
     embedsData: sel.embeds.map(em => ({ type: em.type, x: em.x, y: em.y, w: em.w, h: em.h, rotation: em.rotation || 0, data: em.data })),
     rotation: sel.rotation || 0,
     scale: sel.scale || 1,
@@ -1809,10 +1991,7 @@ function pasteClipboard() {
   const newSel = {
     layerId: layer.id,
     bbox: { x: cb.bbox.x + dx, y: cb.bbox.y + dy, w: cb.bbox.w, h: cb.bbox.h },
-    strokes: cb.strokes.map(s => {
-      if (s.kind === 'text') return { ...s, x: s.x + dx, y: s.y + dy };
-      return { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
-    }),
+    strokes: cb.strokes.map(s => translateStroke(s, dx, dy)),
     embeds: [],
     rotation: cb.rotation,
     scale: cb.scale,
@@ -1856,59 +2035,14 @@ function createEmbedFromData(type, data, x, y, w, h) {
     el.style.fontSize = data.size + 'px';
     el.style.color = data.color;
     el.style.lineHeight = '1.3';
-    // Let the box hug the text content — width fits content, no fixed height
     el.style.whiteSpace = 'pre-wrap';
-    el.innerHTML = escapeHTML(data.text).replace(/\n/g, '<br>');
-    if (window.renderMathInElement) {
-      try {
-        window.renderMathInElement(el, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '\\[', right: '\\]', display: true },
-            { left: '\\(', right: '\\)', display: false },
-            { left: '$',  right: '$',  display: false },
-          ],
-          throwOnError: false,
-        });
-      } catch (_) {}
-    }
+    el.innerHTML = textToHTML(data.text, true);
+    renderTextMath(el);
   }
   embedLayer.appendChild(el);
   const em = { id: 'E' + (nextEmbedId++), type, data, x, y, w, h, el, rotation: 0 };
   el.dataset.embedId = em.id;
-
-  // For text embeds, measure the actual rendered size and fit the bounding box to content,
-  // re-centered around the original (x,y) center. This makes the dashed box hug the text
-  // tightly so it scales visibly with zoom (the way graphs do).
-  if (type === 'text') {
-    // Force layout at natural size with no wrapping so we get the full content width.
-    const prevTransform = el.style.transform;
-    const prevLeft = el.style.left, prevTop = el.style.top;
-    el.style.transform = 'none';
-    el.style.left = '0px'; el.style.top = '0px';
-    el.style.width = 'auto';
-    el.style.height = 'auto';
-    el.style.whiteSpace = 'nowrap';     // prevent wrapping while measuring
-    el.style.display = 'inline-block';  // let it shrink-wrap to content
-    // Force layout
-    void el.offsetWidth;
-    const rect = el.getBoundingClientRect();
-    const naturalW = Math.max(rect.width, 20);
-    const naturalH = Math.max(rect.height, 20);
-    // Restore positioning props; updateEmbedTransform will set transform on next render
-    el.style.transform = prevTransform;
-    el.style.left = prevLeft; el.style.top = prevTop;
-    el.style.display = 'block';
-    el.style.whiteSpace = 'pre-wrap';
-    el.style.width = naturalW + 'px';
-    el.style.height = naturalH + 'px';
-    // Update embed world dimensions and recenter on the original placement center
-    const cx = em.x + em.w/2, cy = em.y + em.h/2;
-    em.w = naturalW;
-    em.h = naturalH;
-    em.x = cx - em.w/2;
-    em.y = cy - em.h/2;
-  }
+  if (type === 'text') fitTextEmbedToContent(em);
 
   attachEmbedDrag(em);
   return em;
@@ -1918,6 +2052,11 @@ function attachEmbedDrag(em) {
   em.el.addEventListener('pointerdown', (e) => {
     // If this embed is currently being edited inline, let the contenteditable handle the click
     if (em.el.classList.contains('editing')) return;
+    if (state.tool === 'select' && state.selection && state.selection.embeds.includes(em) && hitSelectionHandle(eventScreenCoords(e))) {
+      e.stopPropagation();
+      canvasPointerDown(e);
+      return;
+    }
     // If a DIFFERENT embed is being edited, commit it first (the blur listener fires
     // exitTextEditMode). Don't proceed to drag this embed — let the user click again to act.
     const otherEditing = document.querySelector('.embed.editing');
@@ -1988,15 +2127,10 @@ function attachEmbedDrag(em) {
    ========================================================================= */
 function placeInlineText(wx, wy) {
   const layer = activeLayer(); if (!layer) return;
-  const data = {
-    text: '',
-    size: 28 / state.view.scale,  // world-units font; appears at standard on-screen size
-    color: '#1a1a1a',
-  };
-  // Create with placeholder dimensions; we'll measure after content exists
-  const placeholderW = 100 / state.view.scale;
-  const placeholderH = 30 / state.view.scale;
-  const em = createEmbedFromData('text', data, wx - placeholderW/2, wy - placeholderH/2, placeholderW, placeholderH);
+  const size = 28 / state.view.scale;
+  const data = { text: '', size, color: '#1a1a1a' };
+  const w = TEXT_BOX_DEFAULT_W / state.view.scale;
+  const em = createEmbedFromData('text', data, wx - 0.2 * size, wy - 0.77 * size, w, 1.54 * size);
   layer.embeds.push(em);
   render();
   // Immediately enter edit mode. The tool stays as 'text' until the user commits the edit
@@ -2069,7 +2203,7 @@ function enterTextEditMode(em, isNew) {
   // the original \n in the text node — and readRawSourceFromEl ends up counting BOTH (the \n
   // AND the implicit line from the <div>), producing one extra phantom newline.
   // Convert each \n to a <br> tag up front so the DOM uses one consistent model.
-  em.el.innerHTML = escapeHTML(em.data.text || '').replace(/\n/g, '<br>');
+  em.el.innerHTML = textToHTML(em.data.text, false);
   // Resize the bounding box to fit the (potentially wider) raw source — switching from
   // rendered LaTeX to source can expand the text width.
   fitTextEmbedToContent(em);
@@ -2109,6 +2243,11 @@ function enterTextEditMode(em, isNew) {
   const onKeydown = (e) => {
     e.stopPropagation();
     if (e.isComposing) return;
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      document.execCommand('bold');
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       finish();
@@ -2158,13 +2297,26 @@ function readRawSourceFromEl(root) {
   // <br> tags OUTSIDE a div context still produce a real newline (some browsers use
   // <br> for shift-enter or for soft breaks).
   let out = '';
+  let bold = false;
+  const isBold = (el) => {
+    if (!el || el === root) return false;
+    const fw = getComputedStyle(el).fontWeight;
+    const n = parseInt(fw, 10);
+    return (isNaN(n) ? (fw === 'bold' || fw === 'bolder' ? 700 : 400) : n) >= 600;
+  };
+  const emit = (str, parent) => {
+    if (!str) return;
+    const b = isBold(parent);
+    if (b !== bold) { out += b ? BOLD_ON : BOLD_OFF; bold = b; }
+    out += str.replace(/[\uE000\uE001]/g, '');
+  };
   const walkInline = (node) => {
     for (const child of node.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
-        out += child.textContent;
+        emit(child.textContent, child.parentElement);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         if (child.dataset && child.dataset.mathSource) {
-          out += child.dataset.mathSource;
+          emit(child.dataset.mathSource, child.parentElement);
         } else if (child.tagName === 'BR') {
           out += '\n';
         } else {
@@ -2177,11 +2329,11 @@ function readRawSourceFromEl(root) {
     let isFirst = true;
     for (const child of node.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
-        out += child.textContent;
+        emit(child.textContent, child.parentElement);
         isFirst = false;
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         if (child.dataset && child.dataset.mathSource) {
-          out += child.dataset.mathSource;
+          emit(child.dataset.mathSource, child.parentElement);
           isFirst = false;
         } else if (child.tagName === 'BR') {
           out += '\n';
@@ -2210,7 +2362,8 @@ function readRawSourceFromEl(root) {
     }
   };
   walkRoot(root);
-  return out;
+  if (bold) out += BOLD_OFF;
+  return out.replace(/\uE000\uE001/g, '').replace(/\uE001\uE000/g, '');
 }
 
 function exitTextEditMode(em, wasNew) {
@@ -2222,7 +2375,7 @@ function exitTextEditMode(em, wasNew) {
   // This is more reliable than em.data.text which might be stale if a live-render happened
   // between the last input event and blur.
   em.data.text = readRawSourceFromEl(em.el);
-  const txt = (em.data.text || '').trim();
+  const txt = plainText(em.data.text).trim();
   // If empty, delete the embed
   if (!txt) {
     const layer = state.layers.find(l => l.embeds.includes(em));
@@ -2241,22 +2394,8 @@ function exitTextEditMode(em, wasNew) {
   // \n — the block's intrinsic line break already handles that. Result: each user-typed \n
   // adjacent to display math is invisible (absorbed), and additional \n produce visible
   // blank lines symmetrically above and below.
-  let rawText = em.data.text;
-  rawText = rawText.replace(/(\\\]|\$\$)\n/g, '$1');
-  em.el.innerHTML = escapeHTML(rawText).replace(/\n/g, '<br>');
-  if (window.renderMathInElement) {
-    try {
-      window.renderMathInElement(em.el, {
-        delimiters: [
-          { left: '$$', right: '$$', display: true },
-          { left: '\\[', right: '\\]', display: true },
-          { left: '\\(', right: '\\)', display: false },
-          { left: '$',  right: '$',  display: false },
-        ],
-        throwOnError: false,
-      });
-    } catch (_) {}
-  }
+  em.el.innerHTML = textToHTML(em.data.text, true);
+  renderTextMath(em.el);
   fitTextEmbedToContent(em);
   render();
   // Only push history if the text actually changed (or it's a new embed being added).
@@ -2271,40 +2410,35 @@ function exitTextEditMode(em, wasNew) {
   setTool('pen');
 }
 
-// Re-measure the embed's natural rendered size and update em.w/em.h, recentering on its current center.
-// Multi-line content (with \n) is honored via white-space: pre during measurement, so the bbox
-// reflects both width of the widest line and total height across all lines.
+function renderTextMath(el) {
+  if (!window.renderMathInElement) return;
+  try {
+    window.renderMathInElement(el, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '$',  right: '$',  display: false },
+      ],
+      throwOnError: false,
+    });
+  } catch (_) {}
+}
+
 function fitTextEmbedToContent(em) {
-  const prevTransform = em.el.style.transform;
-  const prevLeft = em.el.style.left, prevTop = em.el.style.top;
-  const prevWidth = em.el.style.width, prevHeight = em.el.style.height;
-  const prevWhitespace = em.el.style.whiteSpace;
-  em.el.style.transform = 'none';
-  em.el.style.left = '0px'; em.el.style.top = '0px';
-  em.el.style.width = 'auto'; em.el.style.height = 'auto';
-  // `pre` (not `nowrap`) so \n chars are respected and the height reflects multi-line content.
-  em.el.style.whiteSpace = 'pre';
-  em.el.style.display = 'inline-block';
-  void em.el.offsetWidth;
-  const rect = em.el.getBoundingClientRect();
-  // Convert measured screen-pixel size to world units. Small buffer prevents edge re-wrapping.
-  const naturalW = (Math.max(rect.width, 20) + 2) / state.view.scale;
-  const naturalH = (Math.max(rect.height, 20) + 2) / state.view.scale;
-  em.el.style.transform = prevTransform;
-  em.el.style.left = prevLeft; em.el.style.top = prevTop;
-  em.el.style.display = '';  // clear inline display so CSS class (flex for text-embed) wins
-  em.el.style.whiteSpace = prevWhitespace || 'pre-wrap';
-  em.el.style.width = prevWidth; em.el.style.height = prevHeight;
-  // Recenter on the current center
-  const cx = em.x + em.w/2, cy = em.y + em.h/2;
-  em.w = naturalW;
-  em.h = naturalH;
-  em.x = cx - em.w/2;
-  em.y = cy - em.h/2;
-  if (state.selection && state.selection.embeds.includes(em)) {
-    state.selection.bbox.w = naturalW;
-    state.selection.bbox.h = naturalH;
-  }
+  const el = em.el;
+  const size = em.data.size;
+  let fpx = textFontPx(size, state.view.scale);
+  if (fpx < 8) fpx = 16;
+  const ls = fpx / size;
+  const prev = { t: el.style.transform, w: el.style.width, h: el.style.height, f: el.style.fontSize };
+  el.style.transform = 'none';
+  el.style.fontSize = fpx + 'px';
+  el.style.width = (em.w * ls) + 'px';
+  el.style.height = 'auto';
+  const hPx = el.getBoundingClientRect().height;
+  el.style.transform = prev.t; el.style.width = prev.w; el.style.height = prev.h; el.style.fontSize = prev.f;
+  em.h = Math.max(hPx / ls, size * 1.54);
 }
 
 function positionEmbeds() {
@@ -2318,6 +2452,35 @@ function positionEmbeds() {
 
 function updateEmbedTransform(em, inSel) {
   const v = state.view;
+  if (em.type === 'text') {
+    let left, top, fs, rot;
+    if (inSel) {
+      const sel = state.selection;
+      const sc = sel.scale || 1;
+      const rotSel = (sel.rotation || 0) * Math.PI / 180;
+      const cos = Math.cos(rotSel), sin = Math.sin(rotSel);
+      const dx = em.x + em.w/2 - sel._origCx, dy = em.y + em.h/2 - sel._origCy;
+      const cx = sel.bbox.x + sel.bbox.w/2 + (dx * cos - dy * sin) * sc;
+      const cy = sel.bbox.y + sel.bbox.h/2 + (dx * sin + dy * cos) * sc;
+      const tl = worldToScreen(cx - em.w * sc / 2, cy - em.h * sc / 2);
+      left = tl.x; top = tl.y; fs = v.scale * sc;
+      rot = (em.rotation || 0) + (sel.rotation || 0);
+    } else {
+      const tl = worldToScreen(em.x, em.y);
+      left = tl.x; top = tl.y; fs = v.scale;
+      rot = em.rotation || 0;
+    }
+    const fpx = textFontPx(em.data.size, fs);
+    const ls = fpx / em.data.size;
+    em.el.style.transformOrigin = '50% 50%';
+    em.el.style.left = Math.round(left) + 'px';
+    em.el.style.top = Math.round(top) + 'px';
+    em.el.style.width = (em.w * ls) + 'px';
+    em.el.style.height = (em.h * ls) + 'px';
+    em.el.style.fontSize = fpx + 'px';
+    em.el.style.transform = `rotate(${rot}deg)`;
+    return;
+  }
   if (inSel) {
     const sel = state.selection;
     const sc = sel.scale || 1;
@@ -2542,11 +2705,57 @@ function renderLatexPreview(elemId, latex) {
 // Default settings for a new plot. Re-edit reuses the graph's stored settings instead.
 function defaultGraphSettings() {
   return {
-    xLabel: 'x', yLabel: 'y',
+    xLabel: 'x', yLabel: 'y', zLabel: 'z',
     xMin: -10, xMax: 10,
     yMin: -6, yMax: 6,
+    zMin: -10, zMax: 10,
     showTicks: false,
+    showBox: true,
+    azim: 30, elev: 22,
   };
+}
+
+const graph3DView = { azim: 30, elev: 22 };
+let graphMode3D = false;
+let graphYAutoSet = false;
+
+function is3DKind(kind) {
+  return kind === 'z_of_xy' || kind === 'x_of_yz' || kind === 'y_of_xz';
+}
+
+function setGraphMode(is3D) {
+  if (is3D === graphMode3D) return;
+  graphMode3D = is3D;
+  document.querySelector('.graph-modal').classList.toggle('mode-3d', is3D);
+  const yMin = document.getElementById('gs_yMin'), yMax = document.getElementById('gs_yMax');
+  if (is3D && +yMin.value === -6 && +yMax.value === 6) {
+    yMin.value = -10; yMax.value = 10; graphYAutoSet = true;
+  } else if (!is3D && graphYAutoSet && +yMin.value === -10 && +yMax.value === 10) {
+    yMin.value = -6; yMax.value = 6; graphYAutoSet = false;
+  }
+  updateFitButtonLabel();
+}
+
+function updateFitButtonLabel() {
+  let v = 'y';
+  if (graphMode3D) {
+    v = 'z';
+    try {
+      const k = parseEquation(document.getElementById('g1d_fn').value).kind;
+      if (k === 'x_of_yz') v = 'x';
+      else if (k === 'y_of_xz') v = 'y';
+    } catch (_) {}
+  }
+  const btn = document.getElementById('gs_autoFitBtn');
+  btn.textContent = 'Fit ' + v + ' to plot';
+  btn.title = 'Fit ' + v + ' range to function values';
+}
+
+function syncGraphModeFromInput() {
+  const text = document.getElementById('g1d_fn').value.trim();
+  if (!text) return;
+  try { setGraphMode(is3DKind(parseEquation(text).kind)); } catch (_) {}
+  updateFitButtonLabel();
 }
 
 // Validate min/max ordering on settings, falling back to defaults if reversed/equal.
@@ -2554,6 +2763,7 @@ function defaultGraphSettings() {
 function validateGraphRanges(s) {
   if (!(s.xMax > s.xMin)) { s.xMin = -10; s.xMax = 10; }
   if (!(s.yMax > s.yMin)) { s.yMin = -6; s.yMax = 6; }
+  if (!(s.zMax > s.zMin)) { s.zMin = -10; s.zMax = 10; }
   return s;
 }
 
@@ -2581,11 +2791,17 @@ function readGraphSettings() {
   return {
     xLabel: document.getElementById('gs_xLabel').value,
     yLabel: document.getElementById('gs_yLabel').value,
+    zLabel: document.getElementById('gs_zLabel').value,
     xMin: num('gs_xMin', -10),
     xMax: num('gs_xMax', 10),
     yMin: num('gs_yMin', -6),
     yMax: num('gs_yMax', 6),
+    zMin: num('gs_zMin', -10),
+    zMax: num('gs_zMax', 10),
     showTicks: document.getElementById('gs_showTicks').checked,
+    showBox: document.getElementById('gs_showBox').checked,
+    azim: graph3DView.azim,
+    elev: graph3DView.elev,
   };
 }
 
@@ -2597,7 +2813,13 @@ function writeGraphSettings(s) {
   document.getElementById('gs_xMax').value = s.xMax ?? 10;
   document.getElementById('gs_yMin').value = s.yMin ?? -6;
   document.getElementById('gs_yMax').value = s.yMax ?? 6;
+  document.getElementById('gs_zLabel').value = s.zLabel ?? 'z';
+  document.getElementById('gs_zMin').value = s.zMin ?? -10;
+  document.getElementById('gs_zMax').value = s.zMax ?? 10;
   document.getElementById('gs_showTicks').checked = !!s.showTicks;
+  document.getElementById('gs_showBox').checked = s.showBox ?? true;
+  graph3DView.azim = s.azim ?? 30;
+  graph3DView.elev = s.elev ?? 22;
 }
 
 // Wait until Plotly and mathjs are available. They're loaded with `defer` so the app
@@ -2622,6 +2844,8 @@ function openGraphModal() {
   if (!state.editingGraphId) {
     document.getElementById('g1d_fn').value = '';
     document.getElementById('graphPreview_box').innerHTML = '';
+    graphYAutoSet = false;
+    setGraphMode(false);
     writeGraphSettings(defaultGraphSettings());
   }
   document.getElementById('graphModal').style.display = 'flex';
@@ -2723,6 +2947,7 @@ function scheduleLivePreview() {
 }
 document.getElementById('g1d_fn').addEventListener('input', e => {
   renderLatexPreview('g1d_render', e.target.value);
+  syncGraphModeFromInput();
   scheduleLivePreview();
 });
 document.getElementById('g1d_fn').addEventListener('keydown', e => {
@@ -2745,10 +2970,14 @@ document.addEventListener('keydown', e => {
 });
 
 // Settings inputs: any change triggers a live re-render of the preview.
-for (const id of ['gs_xLabel','gs_yLabel','gs_xMin','gs_xMax','gs_yMin','gs_yMax']) {
+for (const id of ['gs_xLabel','gs_yLabel','gs_zLabel','gs_xMin','gs_xMax','gs_yMin','gs_yMax','gs_zMin','gs_zMax']) {
   document.getElementById(id).addEventListener('input', scheduleLivePreview);
 }
+for (const id of ['gs_yMin','gs_yMax']) {
+  document.getElementById(id).addEventListener('input', () => { graphYAutoSet = false; });
+}
 document.getElementById('gs_showTicks').addEventListener('change', scheduleLivePreview);
+document.getElementById('gs_showBox').addEventListener('change', scheduleLivePreview);
 
 // "fit y to plot" button: sample the function over the current x range and pick a y range
 // that's symmetric about y=0 (so the x-axis stays centered) and contains all function values.
@@ -2757,6 +2986,7 @@ document.getElementById('gs_autoFitBtn').addEventListener('click', () => {
   if (!fnText) return;
   let parsed;
   try { parsed = parseEquation(fnText); } catch (_) { return; }
+  if (is3DKind(parsed.kind)) { autoFit3D(parsed); return; }
   if (parsed.kind !== 'y_of_x') return;  // only meaningful for y=f(x)
   const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : def; };
   let xMin = num('gs_xMin', -10), xMax = num('gs_xMax', 10);
@@ -2803,6 +3033,14 @@ document.getElementById('graphPreview_box').addEventListener('wheel', (e) => {
   document.getElementById('gs_xMax').value = round(xc + halfX);
   document.getElementById('gs_yMin').value = round(yc - halfY);
   document.getElementById('gs_yMax').value = round(yc + halfY);
+  if (graphMode3D) {
+    let zMin = num('gs_zMin', -10), zMax = num('gs_zMax', 10);
+    if (!(zMax > zMin)) { zMin = -10; zMax = 10; }
+    const zc = (zMin + zMax) / 2, halfZ = (zMax - zMin) / 2 * factor;
+    document.getElementById('gs_zMin').value = round(zc - halfZ);
+    document.getElementById('gs_zMax').value = round(zc + halfZ);
+  }
+  graphYAutoSet = false;
   scheduleLivePreview();
 }, { passive: false });
 
@@ -2831,10 +3069,23 @@ function previewGraph() {
   if (!(xMax > xMin)) { xMin = -10; xMax = 10; }
   if (!(yMax > yMin)) { yMin = -6; yMax = 6; }
 
+  if (graphMode3D) {
+    let parsed = null;
+    if (fnText) {
+      try { parsed = parseEquation(fnText); }
+      catch (err) { showGraphPreviewError('parse error: ' + err.message); return; }
+    }
+    if (!parsed || is3DKind(parsed.kind)) {
+      try { preview3D(parsed, settings); }
+      catch (err) { showGraphPreviewError('parse error: ' + err.message); }
+      return;
+    }
+  }
+
   // Empty input → render bare axes only (no curve), so the preview is always present.
   if (!fnText) {
     const layout = baseLayout(settings, xMin, xMax, yMin, yMax);
-    Plotly.react(box, [], layout, { staticPlot: true, displayModeBar: false, responsive: true });
+    plot2D(box, [], layout);
     return;
   }
   let traces = [], layout = {};
@@ -2901,9 +3152,20 @@ function previewGraph() {
       }
       traces = [{ x: xs, y: ys, mode: 'lines', line: { color: '#2b3a5f', width: 2 } }];
     }
-    Plotly.react(box, traces, layout, { staticPlot: true, displayModeBar: false, responsive: true });
+    plot2D(box, traces, layout);
   } catch (err) {
     showGraphPreviewError('parse error: ' + err.message);
+  }
+}
+
+function plot2D(box, traces, layout) {
+  const cfg = { staticPlot: true, displayModeBar: false, responsive: true };
+  if (box.querySelector('canvas.p3d') || !box.querySelector('.plot-container')) {
+    try { Plotly.purge(box); } catch (_) {}
+    box.innerHTML = '';
+    Plotly.newPlot(box, traces, layout, cfg);
+  } else {
+    Plotly.react(box, traces, layout, cfg);
   }
 }
 
@@ -2955,12 +3217,39 @@ function parseEquation(latex) {
   if (!original) throw new Error('empty equation');
   // Split on the FIRST "=" — anything beyond is RHS
   const eqIdx = original.indexOf('=');
+  const usesVar = (expr, v) => new RegExp('(^|[^A-Za-z])' + v + '(?![A-Za-z])').test(expr);
+  const unsupported3D = () => new Error("implicit 3D surfaces aren't supported — write it as z = f(x, y)");
   if (eqIdx < 0) {
     // No "=" at all: treat as bare RHS, default to y = expr(x)
-    return { kind: 'y_of_x', expr: latexToExpr(original), original: 'y = ' + original };
+    const expr = latexToExpr(original);
+    if (usesVar(expr, 'z')) throw unsupported3D();
+    if (usesVar(expr, 'y')) return { kind: 'z_of_xy', expr, original: 'z = ' + original };
+    return { kind: 'y_of_x', expr, original: 'y = ' + original };
   }
   const lhsRaw = original.slice(0, eqIdx).trim();
   const rhsRaw = original.slice(eqIdx + 1).trim();
+  {
+    const lhs3 = lhsRaw.replace(/\s/g, '');
+    const rhs3 = rhsRaw.replace(/\s/g, '');
+    const lhsE = latexToExpr(lhsRaw), rhsE = latexToExpr(rhsRaw);
+    if (lhs3 === 'z' || /^[a-zA-Z]\(x,y\)$/.test(lhs3)) {
+      if (usesVar(rhsE, 'z')) throw unsupported3D();
+      return { kind: 'z_of_xy', expr: rhsE, original };
+    }
+    if (rhs3 === 'z') {
+      if (usesVar(lhsE, 'z')) throw unsupported3D();
+      return { kind: 'z_of_xy', expr: lhsE, original };
+    }
+    if (lhs3 === 'x' && usesVar(rhsE, 'z')) {
+      if (usesVar(rhsE, 'x')) throw unsupported3D();
+      return { kind: 'x_of_yz', expr: rhsE, original };
+    }
+    if (lhs3 === 'y' && usesVar(rhsE, 'z')) {
+      if (usesVar(rhsE, 'y')) throw unsupported3D();
+      return { kind: 'y_of_xz', expr: rhsE, original };
+    }
+    if (usesVar(lhsE, 'z') || usesVar(rhsE, 'z')) throw unsupported3D();
+  }
 
   // Detect explicit forms by examining the LHS:
   //   y, f(x), g(x), h(x), F(x), etc. → y_of_x with rhs as expr in x
@@ -3268,6 +3557,329 @@ function computeTickLabels(settings, originX, originY, screenSpan, viewScale) {
   return labels;
 }
 
+/* =========================================================================
+   3D SURFACES — z = f(x, y), x = f(y, z), y = f(x, z)
+   Orthographic projection of the [min,max]^3 box normalized to a cube, painter's-sorted
+   into filled quads + line segments, placed as a single 'polys' stroke.
+   ========================================================================= */
+const SURFACE_N = 44;
+
+function ranges3D(settings) {
+  const r = (a, b, da, db) => (b > a ? [a, b] : [da, db]);
+  return {
+    x: r(settings.xMin, settings.xMax, -10, 10),
+    y: r(settings.yMin, settings.yMax, -10, 10),
+    z: r(settings.zMin, settings.zMax, -10, 10),
+  };
+}
+
+function axisAnchor(lo, hi) {
+  if (0 >= lo && 0 <= hi) return 0;
+  return Math.abs(lo) < Math.abs(hi) ? lo : hi;
+}
+
+function sample3D(parsed, settings, N) {
+  const R = ranges3D(settings);
+  const map = { z_of_xy: ['x', 'y', 'z'], x_of_yz: ['y', 'z', 'x'], y_of_xz: ['x', 'z', 'y'] }[parsed.kind];
+  const [uName, vName, dName] = map;
+  const compiled = math.compile(parsed.expr);
+  const [u0, u1] = R[uName], [v0, v1] = R[vName], [d0, d1] = R[dName];
+  const norm = (val, [a, b]) => (val - (a + b) / 2) / ((b - a) / 2);
+  const cnt = (N + 1) * (N + 1);
+  const pts = new Float64Array(cnt * 3);
+  const dep = new Float64Array(cnt);
+  const ok = new Uint8Array(cnt);
+  const idx = { x: 0, y: 1, z: 2 };
+  const eps = (d1 - d0) * 1e-9;
+  let any = false;
+  for (let j = 0; j <= N; j++) {
+    const v = v0 + (v1 - v0) * j / N;
+    for (let i = 0; i <= N; i++) {
+      const u = u0 + (u1 - u0) * i / N;
+      const k = j * (N + 1) + i;
+      let val;
+      try { val = compiled.evaluate({ [uName]: u, [vName]: v }); } catch (_) { val = NaN; }
+      if (typeof val !== 'number' || !isFinite(val)) continue;
+      const nd = norm(val, R[dName]);
+      if (Math.abs(nd) > 1e6) continue;
+      pts[k * 3 + idx[uName]] = norm(u, R[uName]);
+      pts[k * 3 + idx[vName]] = norm(v, R[vName]);
+      pts[k * 3 + idx[dName]] = nd;
+      dep[k] = nd;
+      ok[k] = 1;
+      if (val >= d0 - eps && val <= d1 + eps) any = true;
+    }
+  }
+  return { N, pts, dep, ok, any, di: idx[dName] };
+}
+
+function clipPolyDep(poly, di) {
+  const clip = (pl, keep, bound) => {
+    const out = [];
+    for (let i = 0; i < pl.length; i++) {
+      const a = pl[i], b = pl[(i + 1) % pl.length];
+      const ka = keep(a[di]), kb = keep(b[di]);
+      if (ka) out.push(a);
+      if (ka !== kb) {
+        const t = (bound - a[di]) / (b[di] - a[di]);
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
+      }
+    }
+    return out;
+  };
+  let r = clip(poly, v => v <= 1, 1);
+  if (r.length < 3) return r;
+  r = clip(r, v => v >= -1, -1);
+  return r;
+}
+
+function surfaceColor(t, shade) {
+  const stops = [[40, 72, 135], [110, 150, 205], [232, 200, 135]];
+  const tt = Math.max(0, Math.min(1, t)) * 2;
+  const i = Math.min(1, Math.floor(tt));
+  const f = tt - i;
+  const a = stops[i], b = stops[i + 1];
+  const ch = (k) => Math.round((a[k] + (b[k] - a[k]) * f) * shade);
+  return 'rgb(' + ch(0) + ',' + ch(1) + ',' + ch(2) + ')';
+}
+
+function hexToRgba(hex, alpha) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  const n = m ? parseInt(m[1], 16) : 0x1a1a1a;
+  return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+}
+
+function fmtTick(v, step) {
+  if (Math.abs(v) < step * 0.0001) return '0';
+  const decimals = step >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(step)));
+  return Number(v.toFixed(decimals)).toString();
+}
+
+function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
+  const th = (settings.azim ?? 30) * Math.PI / 180;
+  const ph = (settings.elev ?? 22) * Math.PI / 180;
+  const ct = Math.cos(th), st = Math.sin(th), cp = Math.cos(ph), sp = Math.sin(ph);
+  const rv = [-st, ct, 0], uv = [-sp * ct, -sp * st, cp], dv = [cp * ct, cp * st, sp];
+  const proj = (x, y, z) => [cx + unit * (rv[0] * x + rv[1] * y), cy - unit * (uv[0] * x + uv[1] * y + uv[2] * z), dv[0] * x + dv[1] * y + dv[2] * z];
+  const L = [0.3 * rv[0] + 0.6 * uv[0] + 0.75 * dv[0], 0.3 * rv[1] + 0.6 * uv[1] + 0.75 * dv[1], 0.6 * uv[2] + 0.75 * dv[2]];
+  const Ll = Math.hypot(L[0], L[1], L[2]);
+  const items = [];
+  const labels = [];
+  const lineBias = 0.02;
+
+  if (sample && sample.any) {
+    const { N, pts, dep, ok } = sample;
+    let dLo = Infinity, dHi = -Infinity;
+    for (let k = 0; k < dep.length; k++) if (ok[k]) { const v = Math.max(-1, Math.min(1, dep[k])); if (v < dLo) dLo = v; if (v > dHi) dHi = v; }
+    const dSpan = dHi - dLo > 1e-9 ? dHi - dLo : 1;
+    const edge = 'rgba(20,28,45,0.32)';
+    const ew = 0.6 * px;
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const a = j * (N + 1) + i, b = a + 1, c = a + N + 2, d = a + N + 1;
+        if (!ok[a] || !ok[b] || !ok[c] || !ok[d]) continue;
+        const dmin = Math.min(dep[a], dep[b], dep[c], dep[d]), dmax = Math.max(dep[a], dep[b], dep[c], dep[d]);
+        if (dmax - dmin > 1.0 || dmin > 1 || dmax < -1) continue;
+        const A = [pts[a * 3], pts[a * 3 + 1], pts[a * 3 + 2]], B = [pts[b * 3], pts[b * 3 + 1], pts[b * 3 + 2]];
+        const C = [pts[c * 3], pts[c * 3 + 1], pts[c * 3 + 2]], D = [pts[d * 3], pts[d * 3 + 1], pts[d * 3 + 2]];
+        const e1 = [C[0] - A[0], C[1] - A[1], C[2] - A[2]], e2 = [D[0] - B[0], D[1] - B[1], D[2] - B[2]];
+        const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        const nl = Math.hypot(n[0], n[1], n[2]) || 1;
+        const lam = Math.abs((n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / (nl * Ll));
+        const inside = dmin >= -1 && dmax <= 1;
+        const poly = inside ? [A, B, C, D] : clipPolyDep([A, B, C, D], sample.di);
+        if (poly.length < 3) continue;
+        const q = [];
+        let zs = 0, ds = 0;
+        for (const v of poly) {
+          const pr = proj(v[0], v[1], v[2]);
+          q.push(pr[0], pr[1]);
+          zs += pr[2];
+          ds += v[sample.di];
+        }
+        const t = dHi - dLo > 1e-9 ? (ds / poly.length - dLo) / dSpan : 0.5;
+        items.push({ z: zs / poly.length, p: q, f: surfaceColor(t, 0.62 + 0.38 * lam), s: edge, w: ew });
+      }
+    }
+  }
+
+  const addLine = (A, B, segs, color, w) => {
+    for (let k = 0; k < segs; k++) {
+      const t0 = k / segs, t1 = (k + 1) / segs;
+      const a = proj(A[0] + (B[0] - A[0]) * t0, A[1] + (B[1] - A[1]) * t0, A[2] + (B[2] - A[2]) * t0);
+      const b = proj(A[0] + (B[0] - A[0]) * t1, A[1] + (B[1] - A[1]) * t1, A[2] + (B[2] - A[2]) * t1);
+      items.push({ z: (a[2] + b[2]) / 2 + lineBias, p: [a[0], a[1], b[0], b[1]], s: color, w });
+    }
+  };
+
+  if (settings.showBox) {
+    const boxColor = 'rgba(26,26,26,0.2)';
+    const c = [-1, 1];
+    for (const y of c) for (const z of c) addLine([-1, y, z], [1, y, z], 8, boxColor, 0.8 * px);
+    for (const x of c) for (const z of c) addLine([x, -1, z], [x, 1, z], 8, boxColor, 0.8 * px);
+    for (const x of c) for (const y of c) addLine([x, y, -1], [x, y, 1], 8, boxColor, 0.8 * px);
+  }
+
+  const R = ranges3D(settings);
+  const nrm = (v, [a, b]) => (v - (a + b) / 2) / ((b - a) / 2);
+  const o = [nrm(axisAnchor(...R.x), R.x), nrm(axisAnchor(...R.y), R.y), nrm(axisAnchor(...R.z), R.z)];
+  const aColor = axisColor;
+  const aw = 2 * px, aLen = 9 * px, aWid = 9 * px, tickLen = 5 * px;
+  const labelSize = 11 * px, letterSize = 15 * px;
+  const names = ['x', 'y', 'z'];
+  const letters = [settings.xLabel, settings.yLabel, settings.zLabel];
+  for (let ax = 0; ax < 3; ax++) {
+    const A = o.slice(), B = o.slice();
+    A[ax] = -1; B[ax] = 1;
+    addLine(A, B, 24, aColor, aw);
+    const pA = proj(...A), pB = proj(...B);
+    const sx = pB[0] - pA[0], sy = pB[1] - pA[1];
+    const slen = Math.hypot(sx, sy);
+    const dir = slen > 1e-9 ? [sx / slen, sy / slen] : [0, -1];
+    const perp = [-dir[1], dir[0]];
+    if (Math.abs(dir[1]) > Math.abs(dir[0])) { if (perp[0] > 0) { perp[0] = -perp[0]; perp[1] = -perp[1]; } }
+    else if (perp[1] < 0) { perp[0] = -perp[0]; perp[1] = -perp[1]; }
+    const hasArrow = slen > aLen * 3;
+    if (hasArrow) {
+      const bx = pB[0] - dir[0] * aLen, by = pB[1] - dir[1] * aLen;
+      items.push({
+        z: pB[2] + lineBias,
+        p: [bx + perp[0] * aWid / 2, by + perp[1] * aWid / 2, pB[0], pB[1], bx - perp[0] * aWid / 2, by - perp[1] * aWid / 2],
+        s: aColor, w: aw,
+      });
+    }
+    const letter = (letters[ax] || '').trim();
+    if (letter) {
+      const off = 13 * px;
+      labels.push({ x: pB[0] + (hasArrow ? dir[0] * off : 0), y: pB[1] + (hasArrow ? dir[1] * off : -off), text: letter, size: letterSize, italic: true, opacity: 0.8 });
+    }
+    if (settings.showTicks && slen > 20 * px) {
+      const [lo, hi] = R[names[ax]];
+      const step = niceTickStep(hi - lo, 8);
+      const zone = (aLen / (slen / 2)) * ((hi - lo) / 2);
+      for (let v = Math.ceil(lo / step) * step, n = 0; v <= hi + step * 1e-3 && n < 200; v += step, n++) {
+        if (Math.abs(v) < step * 1e-4) continue;
+        if (hasArrow && v > hi - zone) continue;
+        const Pt = o.slice(); Pt[ax] = nrm(v, [lo, hi]);
+        const q = proj(...Pt);
+        items.push({ z: q[2] + lineBias, p: [q[0] - perp[0] * tickLen / 2, q[1] - perp[1] * tickLen / 2, q[0] + perp[0] * tickLen / 2, q[1] + perp[1] * tickLen / 2], s: aColor, w: aw });
+        const text = fmtTick(v, step);
+        const off = tickLen / 2 + 4 * px + Math.abs(perp[0]) * 0.3 * labelSize * text.length + Math.abs(perp[1]) * 0.5 * labelSize;
+        labels.push({ x: q[0] + perp[0] * off, y: q[1] + perp[1] * off, text, size: labelSize, opacity: 0.7 });
+      }
+    }
+  }
+
+  items.sort((a, b) => a.z - b.z);
+  return {
+    items: items.map(it => (it.f ? { p: it.p, f: it.f, s: it.s, w: it.w } : { p: it.p, s: it.s, w: it.w })),
+    labels,
+  };
+}
+
+const preview3DState = { key: null, sample: null, parsed: null, settings: null };
+
+function preview3D(parsed, settings) {
+  const box = document.getElementById('graphPreview_box');
+  let cv = box.querySelector('canvas.p3d');
+  if (!cv) {
+    try { Plotly.purge(box); } catch (_) {}
+    box.innerHTML = '';
+    cv = document.createElement('canvas');
+    cv.className = 'p3d';
+    box.appendChild(cv);
+    attachPreview3DDrag(cv);
+  }
+  let sample = null;
+  if (parsed) {
+    const key = parsed.kind + '|' + parsed.expr + '|' + [settings.xMin, settings.xMax, settings.yMin, settings.yMax, settings.zMin, settings.zMax].join(',');
+    if (preview3DState.key !== key) {
+      preview3DState.key = key;
+      preview3DState.sample = sample3D(parsed, settings, SURFACE_N);
+    }
+    sample = preview3DState.sample;
+  }
+  preview3DState.parsed = parsed;
+  preview3DState.settings = settings;
+  preview3DState.drawSample = sample;
+  draw3DPreview();
+}
+
+function draw3DPreview() {
+  const box = document.getElementById('graphPreview_box');
+  const cv = box.querySelector('canvas.p3d');
+  if (!cv || !preview3DState.settings) return;
+  const rect = box.getBoundingClientRect();
+  const w = Math.max(1, rect.width), h = Math.max(1, rect.height);
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+  }
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  const settings = { ...preview3DState.settings, azim: graph3DView.azim, elev: graph3DView.elev };
+  const scene = build3DScene(preview3DState.drawSample, settings, w / 2, h / 2, Math.min(w, h) * 0.28, 1, hexToRgba(state.penColor, 0.55));
+  drawPolyItems(c, scene.items);
+  for (const lab of scene.labels) {
+    drawStroke({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: '#1a1a1a', anchor: 'middle-center', opacity: lab.opacity }, c);
+  }
+  if (preview3DState.parsed && !(preview3DState.drawSample && preview3DState.drawSample.any)) {
+    c.fillStyle = '#a64a3a';
+    c.font = '12px ui-monospace, Menlo, monospace';
+    c.textAlign = 'left'; c.textBaseline = 'top';
+    c.fillText('no surface in this range', 4, 4);
+  }
+  c.fillStyle = 'rgba(26,26,26,0.4)';
+  c.font = '11px ui-monospace, Menlo, monospace';
+  c.textAlign = 'right'; c.textBaseline = 'bottom';
+  c.fillText('drag to rotate · scroll to zoom', w - 2, h - 2);
+}
+
+function attachPreview3DDrag(cv) {
+  let drag = null;
+  cv.addEventListener('pointerdown', (e) => {
+    drag = { x: e.clientX, y: e.clientY, azim: graph3DView.azim, elev: graph3DView.elev };
+    cv.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    graph3DView.azim = ((drag.azim - (e.clientX - drag.x) * 0.5) % 360 + 360) % 360;
+    graph3DView.elev = Math.max(-89, Math.min(89, drag.elev + (e.clientY - drag.y) * 0.5));
+    draw3DPreview();
+  });
+  const end = (e) => { if (!drag) return; drag = null; try { cv.releasePointerCapture(e.pointerId); } catch (_) {} };
+  cv.addEventListener('pointerup', end);
+  cv.addEventListener('pointercancel', end);
+}
+
+function autoFit3D(parsed) {
+  const s = readGraphSettings();
+  const R = ranges3D(s);
+  const map = { z_of_xy: ['x', 'y', 'z'], x_of_yz: ['y', 'z', 'x'], y_of_xz: ['x', 'z', 'y'] }[parsed.kind];
+  const [uName, vName, dName] = map;
+  let lo = Infinity, hi = -Infinity;
+  try {
+    const compiled = math.compile(parsed.expr);
+    const N = 80;
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const u = R[uName][0] + (R[uName][1] - R[uName][0]) * i / N;
+      const v = R[vName][0] + (R[vName][1] - R[vName][0]) * j / N;
+      let val; try { val = compiled.evaluate({ [uName]: u, [vName]: v }); } catch (_) { val = NaN; }
+      if (typeof val === 'number' && isFinite(val)) { if (val < lo) lo = val; if (val > hi) hi = val; }
+    }
+  } catch (_) { return; }
+  if (!isFinite(lo) || !isFinite(hi)) return;
+  lo = Math.max(lo, -1e6); hi = Math.min(hi, 1e6);
+  const half = Math.max(Math.abs(lo), Math.abs(hi)) * 1.1 || 1;
+  document.getElementById('gs_' + dName + 'Min').value = +(-half).toFixed(4);
+  document.getElementById('gs_' + dName + 'Max').value = +half.toFixed(4);
+  if (dName === 'y') graphYAutoSet = false;
+  scheduleLivePreview();
+}
+
 document.getElementById('graphPlace').onclick = () => {
   const latexFn = document.getElementById('g1d_fn').value;
   // Empty input: Place is a no-op for adding content, but still close the modal
@@ -3322,6 +3934,35 @@ document.getElementById('graphPlace').onclick = () => {
   }
 
   const graphId = editing ? state.editingGraphId : 'G' + (nextGraphId++);
+
+  if (is3DKind(parsed.kind)) {
+    const dropNewLayer = () => {
+      if (!editing) {
+        state.layers = state.layers.filter(l => l.id !== layer.id);
+        renderLayerList();
+      }
+    };
+    let sample;
+    try { sample = sample3D(parsed, settings, SURFACE_N); }
+    catch (err) { showGraphPreviewError('parse error: ' + err.message); dropNewLayer(); return; }
+    if (!sample.any) { showGraphPreviewError('no surface in this range — check the equation or ranges'); dropNewLayer(); return; }
+    const px = 1 / state.view.scale;
+    const unit = (screenSpan / state.view.scale) * 0.27;
+    const scene = build3DScene(sample, settings, originX, originY, unit, px, hexToRgba(state.penColor, 0.55));
+    layer.strokes.push({ kind: 'polys', items: scene.items, graphId });
+    for (const lab of scene.labels) {
+      layer.strokes.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: '#1a1a1a', anchor: 'middle-center', graphId, opacity: lab.opacity });
+    }
+    state.graphs[graphId] = { latex: latexFn, originX, originY, screenSpan, layerId: layer.id, settings, is3D: true };
+    if (!editing) state.activeLayerId = previousActiveLayerId;
+    state.editingGraphId = null;
+    closeModal('graphModal');
+    setTool('pen');
+    render();
+    renderLayerList();
+    pushHistory(editing ? 'Edit graph' : 'Add graph');
+    return;
+  }
 
   // Generate the curve strokes (may throw if expression is malformed at compile time)
   let curveStrokes;
@@ -3395,7 +4036,10 @@ function openGraphModalForGraphId(graphId) {
   if (!g) return;
   state.editingGraphId = graphId;
   document.getElementById('g1d_fn').value = g.latex;
-  writeGraphSettings(g.settings || defaultGraphSettings());
+  graphYAutoSet = false;
+  graphMode3D = !g.is3D;
+  setGraphMode(!!g.is3D);
+  writeGraphSettings({ ...defaultGraphSettings(), ...(g.settings || {}) });
   document.getElementById('graphModal').style.display = 'flex';
   renderLatexPreview('g1d_render', g.latex);
   ensureGraphDeps().then(previewGraph);
@@ -3417,36 +4061,7 @@ function snapshotState() {
     name: layer.name,
     visible: layer.visible,
     base: !!layer.base,
-    strokes: layer.strokes.map(s => {
-      if (s.kind === 'image') {
-        return {
-          kind: 'image',
-          x: s.x, y: s.y, w: s.w, h: s.h,
-          src: s.src,
-          opacity: s.opacity,
-        };
-      }
-      if (s.kind === 'text') {
-        return {
-          kind: 'text',
-          x: s.x, y: s.y,
-          text: s.text,
-          size: s.size,
-          color: s.color,
-          anchor: s.anchor,
-          graphId: s.graphId,
-          opacity: s.opacity,
-        };
-      }
-      return {
-        color: s.color,
-        width: s.width,
-        mode: s.mode,
-        points: s.points.map(p => ({ x: p.x, y: p.y })),
-        graphId: s.graphId,
-        opacity: s.opacity,
-      };
-    }),
+    strokes: layer.strokes.map(cloneStroke),
     embeds: layer.embeds.map(em => ({
       id: em.id,
       type: em.type,
@@ -3482,36 +4097,7 @@ function restoreSnapshot(snap) {
     name: layer.name,
     visible: layer.visible,
     base: !!layer.base,
-    strokes: layer.strokes.map(s => {
-      if (s.kind === 'image') {
-        return {
-          kind: 'image',
-          x: s.x, y: s.y, w: s.w, h: s.h,
-          src: s.src,
-          opacity: s.opacity,
-        };
-      }
-      if (s.kind === 'text') {
-        return {
-          kind: 'text',
-          x: s.x, y: s.y,
-          text: s.text,
-          size: s.size,
-          color: s.color,
-          anchor: s.anchor,
-          graphId: s.graphId,
-          opacity: s.opacity,
-        };
-      }
-      return {
-        color: s.color,
-        width: s.width,
-        mode: s.mode,
-        points: s.points.map(p => ({ x: p.x, y: p.y })),
-        graphId: s.graphId,
-        opacity: s.opacity,
-      };
-    }),
+    strokes: layer.strokes.map(cloneStroke),
     embeds: [],
   }));
 
@@ -3987,7 +4573,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'e') setTool('eraser');
   else if (k === 's') setTool('select');
   else if (k === 't') setTool('text');
-  else if (k === '1') setTool('graph');
+  else if (k === '1') { e.preventDefault(); setTool('graph'); }
   else if (k === '2') setTool('axes2d');
   else if (k === '3') setTool('axes3d');
 });
