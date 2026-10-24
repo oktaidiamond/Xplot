@@ -497,6 +497,8 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
 }
 #mainCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; background: var(--paper); }
 .embed-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+#mainCanvas, .embed-layer { touch-action: none; }
+html, body { overscroll-behavior: none; }
 .embed { position: absolute; pointer-events: auto; cursor: grab; user-select: none; border: 1px dashed transparent; padding: 4px; background: transparent; text-align: center; }
 .embed.text-embed {
   display: block; text-align: left;
@@ -791,7 +793,7 @@ const state = {
   penSize: 4,         // size when pen tool is active
   eraserSize: 32,     // size when eraser tool is active
   // When sizeLockedScale is non-null, stroke widths are calibrated to that scale rather
-  // than the current view scale — so they keep a constant on-screen size as you zoom.
+  // than the current view scale — so new strokes keep the same world thickness at any zoom.
   sizeLockedScale: null,
   showGrid: false,
   view: { x: 0, y: 0, scale: 1 },
@@ -931,6 +933,7 @@ function renderLayerList() {
       vis.dataset.tip = layer.visible ? 'Hide layer' : 'Show layer';
       setIcon();
       render();
+      pushHistory(layer.visible ? 'Show layer' : 'Hide layer');
     };
     vis.draggable = false;
     row.appendChild(vis);
@@ -970,8 +973,10 @@ function renderLayerList() {
     // Single click on the name does nothing special — the row's onclick selects the layer.
     // Double-click is what enters rename mode (matches Finder / Files-app conventions and
     // makes selecting a layer a single quick click, not a click-into-edit-mode trap).
+    let nameBefore = null;
     display.ondblclick = (e) => {
       e.stopPropagation();
+      nameBefore = layer.name;
       display.style.display = 'none';
       name.style.display = '';
       name.focus();
@@ -983,6 +988,8 @@ function renderLayerList() {
       updateNameDisplay();
       display.style.display = '';
       name.style.display = 'none';
+      if (nameBefore !== null && layer.name !== nameBefore) pushHistory('Rename layer');
+      nameBefore = null;
     };
     name.onkeydown = (e) => {
       if (e.key === 'Enter') { name.blur(); }
@@ -1014,12 +1021,11 @@ function renderLayerList() {
     del.onclick = (e) => {
       e.stopPropagation();
       if (state.layers.length <= 1) return;
-      if (state.activeLayerId === layer.id) {
-        const idx = state.layers.findIndex(l => l.id === layer.id);
-        state.activeLayerId = state.layers[Math.max(0, idx - 1)].id;
-      }
+      const idx = state.layers.findIndex(l => l.id === layer.id);
+      if (state.selection && state.selection.layerId === layer.id) cancelSelection();
       layer.embeds.forEach(em => em.el && em.el.remove());
-      state.layers = state.layers.filter(l => l.id !== layer.id);
+      state.layers.splice(idx, 1);
+      if (state.activeLayerId === layer.id) state.activeLayerId = state.layers[Math.max(0, idx - 1)].id;
       render(); renderLayerList();
       pushHistory('Delete layer');
     };
@@ -1030,7 +1036,7 @@ function renderLayerList() {
     row.onclick = () => {
       if (state.activeLayerId === layer.id) return;
       state.activeLayerId = layer.id;
-      cancelSelection();
+      commitSelection();
       // Toggle the .active class in place rather than re-rendering the whole list — a
       // full re-render would destroy this row's DOM element mid-click, breaking the
       // dblclick-to-rename behavior on the name span.
@@ -1178,9 +1184,9 @@ function render() {
 
 function drawEraserCursor() {
   if (state.tool !== 'eraser' || !state.cursor.over) return;
-  // Eraser stroke width on screen equals the eraser size (strokes are stored in world units
-  // as size/scale, but rendered with the scale transform — so on-screen width is size).
-  const radius = state.eraserSize / 2;
+  // Eraser stroke width on screen equals the eraser size, scaled by zoom since lock-time
+  // when the size lock is on.
+  const radius = state.eraserSize * state.view.scale / (state.sizeLockedScale ?? state.view.scale) / 2;
   ctx.save();
   // Outer dark ring
   ctx.beginPath();
@@ -1401,7 +1407,17 @@ function selectionCornersScreen() {
 /* =========================================================================
    POINTER EVENTS — main canvas
    ========================================================================= */
+function toolCursor() {
+  return { pen: 'crosshair', select: 'crosshair', eraser: 'none', text: 'text' }[state.tool] || 'default';
+}
+
+function gestureActive() {
+  return !!(state.drawing || state.selDrag || state.panning || (state.graphInteract && state.graphInteract.drag));
+}
+
 function canvasPointerDown(e) {
+  if (gestureActive() && e.pointerId !== state.activePointerId) return;
+  state.activePointerId = e.pointerId;
   const sp = eventScreenCoords(e);
   const wp = screenToWorld(sp.x, sp.y);
 
@@ -1460,9 +1476,13 @@ function canvasPointerDown(e) {
       const cs = selectionCornersScreen();
       const anchor = cs[opposite];
       const origCorner = cs[handle];
+      const sb = state.selection.bbox;
       state.selDrag = {
         mode: 'resize-' + handle,
         anchorSx: anchor.x, anchorSy: anchor.y,
+        anchorW: screenToWorld(anchor.x, anchor.y),
+        offX: (opposite === 'ne' || opposite === 'se' ? 1 : -1) * sb.w / 2,
+        offY: (opposite === 'sw' || opposite === 'se' ? 1 : -1) * sb.h / 2,
         startCornerDist: Math.hypot(origCorner.x - anchor.x, origCorner.y - anchor.y),
         startScale: state.selection.scale || 1,
       };
@@ -1491,15 +1511,15 @@ function canvasPointerDown(e) {
   }
 
   const prevDown = state.lastDown;
-  state.lastDown = { t: performance.now(), x: sp.x, y: sp.y };
-  if ((state.tool === 'pen' || state.tool === 'eraser') && prevDown && state.lastDown.t - prevDown.t < 450 && Math.hypot(sp.x - prevDown.x, sp.y - prevDown.y) < 6) {
+  state.lastDown = { t: performance.now(), x: sp.x, y: sp.y, tap: false };
+  if ((state.tool === 'pen' || state.tool === 'eraser') && prevDown && prevDown.tap && state.lastDown.t - prevDown.t < 450 && Math.hypot(sp.x - prevDown.x, sp.y - prevDown.y) < 6) {
     return;
   }
 
   if (state.tool === 'pen' || state.tool === 'eraser') {
     state.drawing = true;
     // When size is locked, the stroke's world-width is calibrated against the scale at
-    // lock-time so its on-screen width stays constant as the user zooms.
+    // lock-time so its world thickness stays constant as the user zooms.
     const widthScale = state.sizeLockedScale != null ? state.sizeLockedScale : state.view.scale;
     state.currentStroke = {
       points: [{ x: wp.x, y: wp.y }],
@@ -1514,6 +1534,7 @@ function canvasPointerDown(e) {
 canvas.addEventListener('pointerdown', canvasPointerDown);
 
 canvas.addEventListener('pointermove', (e) => {
+  if (gestureActive() && e.pointerId !== state.activePointerId) return;
   const sp = eventScreenCoords(e);
   const wp = screenToWorld(sp.x, sp.y);
 
@@ -1547,7 +1568,7 @@ canvas.addEventListener('pointermove', (e) => {
     return;
   }
 
-  if (state.selDrag) {
+  if (state.selDrag && state.selection) {
     const sd = state.selDrag;
     const sel = state.selection;
     if (sd.mode === 'creating') {
@@ -1577,6 +1598,12 @@ canvas.addEventListener('pointermove', (e) => {
       if (sd.startCornerDist > 0) {
         const factor = Math.max(0.05, d1 / sd.startCornerDist);
         sel.scale = sd.startScale * factor;
+        const rot = (sel.rotation || 0) * Math.PI / 180;
+        const ox = sd.offX * sel.scale, oy = sd.offY * sel.scale;
+        const ncx = sd.anchorW.x - (ox * Math.cos(rot) - oy * Math.sin(rot));
+        const ncy = sd.anchorW.y - (ox * Math.sin(rot) + oy * Math.cos(rot));
+        sel.bbox.x = ncx - sel.bbox.w / 2;
+        sel.bbox.y = ncy - sel.bbox.h / 2;
       }
       render();
     }
@@ -1598,11 +1625,12 @@ canvas.addEventListener('pointermove', (e) => {
   if (state.tool === 'eraser') render();
 });
 
-canvas.addEventListener('pointerup', (e) => {
+function canvasPointerUp(e) {
+  if (gestureActive() && e.pointerId !== state.activePointerId) return;
   if (state.panning) {
     state.panning = false;
     try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-    canvas.style.cursor = state.tool === 'pen' ? 'crosshair' : 'default';
+    canvas.style.cursor = toolCursor();
     return;
   }
   if (state.graphInteract && state.graphInteract.drag) {
@@ -1623,6 +1651,7 @@ canvas.addEventListener('pointerup', (e) => {
         ? { stroke: state.currentStroke, layerId: layer.id, histId: state.history[state.historyIndex].id, t: performance.now() }
         : null;
     }
+    if (state.lastDown) state.lastDown.tap = state.currentStroke.points.length === 1;
     state.currentStroke = null;
     state.drawing = false;
     try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
@@ -1632,6 +1661,11 @@ canvas.addEventListener('pointerup', (e) => {
   if (state.selDrag) {
     const sd = state.selDrag;
     state.selDrag = null;
+    if (sd.mode === 'creating' && !state.selection) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      render();
+      return;
+    }
     if (sd.mode === 'creating') {
       const b = state.selection.bbox;
       if (b.w < 4 || b.h < 4) {
@@ -1641,6 +1675,7 @@ canvas.addEventListener('pointerup', (e) => {
       } else {
         liftSelection();
         ensureSelectionOrigin();
+        if (!state.selection.strokes.length && !state.selection.embeds.length) cancelSelection();
       }
     } else if (sd.editOnClick) {
       // Second click on an already-selected text embed without drag → enter edit mode.
@@ -1661,7 +1696,9 @@ canvas.addEventListener('pointerup', (e) => {
     render();
     return;
   }
-});
+}
+canvas.addEventListener('pointerup', canvasPointerUp);
+canvas.addEventListener('pointercancel', canvasPointerUp);
 
 wrap.addEventListener('wheel', (e) => {
   e.preventDefault();
@@ -1707,9 +1744,10 @@ wrap.addEventListener('dblclick', (e) => {
     selDx = (sel.bbox.x + sel.bbox.w/2) - sel._origCx;
     selDy = (sel.bbox.y + sel.bbox.h/2) - sel._origCy;
   }
+  const selLayer = sel && state.layers.find(l => l.id === sel.layerId);
   const allEmbeds = [
-    ...state.layers.flatMap(l => l.embeds).map(em => ({ em, dx: 0, dy: 0 })),
-    ...(sel ? sel.embeds.map(em => ({ em, dx: selDx, dy: selDy })) : []),
+    ...state.layers.filter(l => l.visible).flatMap(l => l.embeds).map(em => ({ em, dx: 0, dy: 0 })),
+    ...(sel && (!selLayer || selLayer.visible) ? sel.embeds.map(em => ({ em, dx: selDx, dy: selDy })) : []),
   ];
   for (const { em, dx, dy } of allEmbeds) {
     if (em.type !== 'text') continue;
@@ -1843,7 +1881,7 @@ function regenInteract(fast) {
   }
   let strokes;
   try { strokes = buildGraphStrokes({ ...g, graphId: gi.gid }, gi.parsed, opts); } catch (_) { return; }
-  layer.strokes = layer.strokes.filter(st => st.graphId !== gi.gid).concat(strokes);
+  replaceGraphStrokes(layer, gi.gid, strokes);
   render();
 }
 
@@ -1923,7 +1961,7 @@ function exitGraphInteract(silent) {
   clearTimeout(gi.timer);
   state.graphInteract = null;
   document.getElementById('graphInteractBar').style.display = 'none';
-  canvas.style.cursor = state.tool === 'eraser' ? 'none' : state.tool === 'text' ? 'text' : (state.tool === 'pen' || state.tool === 'select') ? 'crosshair' : 'default';
+  canvas.style.cursor = toolCursor();
   const g = state.graphs[gi.gid];
   if (!g || silent) { render(); return; }
   const st = g.settings;
@@ -2075,19 +2113,25 @@ function rectsIntersect(a, b) {
   return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
 }
 
+function reinsertStrokes(strokes, items, idx) {
+  const out = strokes.slice();
+  items.forEach((st, k) => {
+    const at = idx && idx[k] != null ? Math.min(idx[k], out.length) : out.length;
+    out.splice(at, 0, st);
+  });
+  return out;
+}
+
 function liftSelection() {
   const sel = state.selection;
   const layer = state.layers.find(l => l.id === sel.layerId) || activeLayer();
   if (!layer) return;
   sel.layerId = layer.id;
   const b = sel.bbox;
-  const initialPicked = [];
-  const remaining = [];
-  for (const s of layer.strokes) {
-    const sb = strokeBounds(s);
-    if (rectsIntersect(b, sb)) initialPicked.push(s);
-    else remaining.push(s);
-  }
+  const all = layer.strokes;
+  const bounds = all.map(strokeBounds);
+  const picked = new Set();
+  all.forEach((s, i) => { if (s.mode !== 'eraser' && rectsIntersect(b, bounds[i])) picked.add(i); });
   // Pick embeds whose center falls inside the drag rect
   const remEmbeds = [];
   const pickedEmbeds = [];
@@ -2102,29 +2146,35 @@ function liftSelection() {
   // Graph grouping: any graphId touched by a picked stroke pulls in ALL strokes with
   // that graphId, even if they weren't directly under the drag rect. This keeps the
   // curve, axes, and tick-label numbers (which are tagged text strokes) as a single unit.
-  const allGraphIds = new Set(initialPicked.map(s => s.graphId).filter(Boolean));
-  if (allGraphIds.size) {
-    const stillRemainingStrokes = [];
-    for (const s of remaining) {
-      if (s.graphId && allGraphIds.has(s.graphId)) initialPicked.push(s);
-      else stillRemainingStrokes.push(s);
+  const allGraphIds = new Set([...picked].map(i => all[i].graphId).filter(Boolean));
+  if (allGraphIds.size) all.forEach((s, i) => { if (s.graphId && allGraphIds.has(s.graphId)) picked.add(i); });
+  const firstPicked = picked.size ? Math.min(...picked) : Infinity;
+  all.forEach((s, j) => {
+    if (s.mode !== 'eraser' || j < firstPicked) return;
+    let touchesPicked = false, touchesOther = false;
+    for (let i = 0; i < j; i++) {
+      if (all[i].mode === 'eraser' || !rectsIntersect(bounds[j], bounds[i])) continue;
+      if (picked.has(i)) touchesPicked = true; else touchesOther = true;
     }
-    remaining.length = 0;
-    remaining.push(...stillRemainingStrokes);
-  }
+    if (touchesPicked && !touchesOther) picked.add(j);
+  });
   layer.embeds = remEmbeds;
+
+  const idx = [...picked].sort((p, q) => p - q);
+  const initialPicked = idx.map(i => all[i]);
 
   // Recompute bbox to tightly encompass all picked strokes AND embeds, so the visible
   // selection rectangle hugs the actual content rather than the user's drag area.
   if (initialPicked.length || pickedEmbeds.length) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const s of initialPicked) {
-      const sb = strokeBounds(s);
+    idx.forEach(i => {
+      if (all[i].mode === 'eraser') return;
+      const sb = bounds[i];
       if (sb.x < minX) minX = sb.x;
       if (sb.y < minY) minY = sb.y;
       if (sb.x + sb.w > maxX) maxX = sb.x + sb.w;
       if (sb.y + sb.h > maxY) maxY = sb.y + sb.h;
-    }
+    });
     for (const em of pickedEmbeds) {
       if (em.x < minX) minX = em.x;
       if (em.y < minY) minY = em.y;
@@ -2135,8 +2185,9 @@ function liftSelection() {
   }
 
   for (const s of initialPicked) sel.strokes.push(s);
+  sel.strokeIdx = idx;
   for (const em of pickedEmbeds) sel.embeds.push(em);
-  layer.strokes = remaining;
+  layer.strokes = all.filter((_, i) => !picked.has(i));
   sel.lifted = true;
   sel._origCx = sel.bbox.x + sel.bbox.w/2;
   sel._origCy = sel.bbox.y + sel.bbox.h/2;
@@ -2203,8 +2254,10 @@ function applyTextWidthDrag(side, wp) {
 }
 
 function commitSelection() {
+  state.selDrag = null;
   const sel = state.selection;
   if (!sel) return;
+  if (!sel.lifted) { cancelSelection(); return; }
   const layer = state.layers.find(l => l.id === sel.layerId) || activeLayer();
   if (!layer) { cancelSelection(); return; }
   const b = sel.bbox;
@@ -2226,7 +2279,6 @@ function commitSelection() {
         return { ...it, p: q, w: it.w ? it.w * sc : it.w };
       });
       s._b = null;
-      layer.strokes.push(s);
       continue;
     }
     if (s.kind === 'image') {
@@ -2238,7 +2290,6 @@ function commitSelection() {
       s.x = (nx + cx) - s.w/2;
       s.y = (ny + cy) - s.h/2;
       s.rot = (((s.rot || 0) + (sel.rotation || 0)) % 360 + 360) % 360;
-      layer.strokes.push(s);
       continue;
     }
     if (s.kind === 'text') {
@@ -2249,7 +2300,6 @@ function commitSelection() {
       s.x = nx + cx;
       s.y = ny + cy;
       s.size *= sc;
-      layer.strokes.push(s);
       continue;
     }
     s.points = s.points.map(p => {
@@ -2259,8 +2309,8 @@ function commitSelection() {
       return { x: nx + cx, y: ny + cy };
     });
     s.width = s.width * sc;
-    layer.strokes.push(s);
   }
+  layer.strokes = reinsertStrokes(layer.strokes, sel.strokes, sel.strokeIdx);
   const movedGraphs = new Set(sel.strokes.map(st => st.graphId).filter(g => g && state.graphs[g]));
   for (const gid of movedGraphs) {
     const g = state.graphs[gid];
@@ -2297,11 +2347,12 @@ function commitSelection() {
 }
 
 function cancelSelection() {
+  state.selDrag = null;
   const sel = state.selection;
   if (sel && sel.lifted) {
     const layer = state.layers.find(l => l.id === sel.layerId);
     if (layer) {
-      for (const s of sel.strokes) layer.strokes.push(s);
+      layer.strokes = reinsertStrokes(layer.strokes, sel.strokes, sel.strokeIdx);
       for (const em of sel.embeds) { em.el && em.el.classList.remove('selected'); layer.embeds.push(em); }
     }
   }
@@ -2310,6 +2361,7 @@ function cancelSelection() {
 }
 
 function deleteSelection() {
+  state.selDrag = null;
   if (!state.selection) return;
   for (const em of state.selection.embeds) em.el && em.el.remove();
   state.selection = null;
@@ -2322,6 +2374,8 @@ function copySelection() {
   const sel = state.selection;
   state.clipboard = {
     bbox: { ...sel.bbox },
+    origCx: sel._origCx ?? (sel.bbox.x + sel.bbox.w / 2),
+    origCy: sel._origCy ?? (sel.bbox.y + sel.bbox.h / 2),
     strokes: sel.strokes.map(cloneStroke),
     embedsData: sel.embeds.map(em => ({ type: em.type, x: em.x, y: em.y, w: em.w, h: em.h, rotation: em.rotation || 0, data: { ...em.data } })),
     rotation: sel.rotation || 0,
@@ -2336,14 +2390,14 @@ function pasteClipboard() {
   const cb = state.clipboard;
   const r = wrap.getBoundingClientRect();
   const center = screenToWorld(r.width/2, r.height/2);
-  const origCx = cb.bbox.x + cb.bbox.w/2;
-  const origCy = cb.bbox.y + cb.bbox.h/2;
+  const origCx = cb.origCx ?? (cb.bbox.x + cb.bbox.w/2);
+  const origCy = cb.origCy ?? (cb.bbox.y + cb.bbox.h/2);
   const dx = center.x - origCx, dy = center.y - origCy;
   const layer = activeLayer(); if (!layer) return;
 
   const newSel = {
     layerId: layer.id,
-    bbox: { x: cb.bbox.x + dx, y: cb.bbox.y + dy, w: cb.bbox.w, h: cb.bbox.h },
+    bbox: { x: center.x - cb.bbox.w/2, y: center.y - cb.bbox.h/2, w: cb.bbox.w, h: cb.bbox.h },
     strokes: cb.strokes.map(s => translateStroke(s, dx, dy)),
     embeds: [],
     rotation: cb.rotation,
@@ -2420,6 +2474,9 @@ function createEmbedFromData(type, data, x, y, w, h) {
 
 function attachEmbedDrag(em) {
   em.el.addEventListener('pointerdown', (e) => {
+    if (gestureActive() && e.pointerId !== state.activePointerId) { e.stopPropagation(); return; }
+    if (e.button !== 0) { e.stopPropagation(); canvasPointerDown(e); return; }
+    state.activePointerId = e.pointerId;
     // If this embed is currently being edited inline, let the contenteditable handle the click
     if (em.el.classList.contains('editing')) return;
     if (state.tool === 'select' && state.selection && state.selection.embeds.includes(em) && hitSelectionHandle(eventScreenCoords(e))) {
@@ -2440,7 +2497,7 @@ function attachEmbedDrag(em) {
     // The tool stays as 'text' while editing; exitTextEditMode switches to pen on commit, so
     // the next click after editing doesn't trigger another text placement.
     if (state.tool === 'text' && em.type === 'text') {
-      if (state.selection) cancelSelection();
+      if (state.selection) commitSelection();
       enterTextEditMode(em);
       return;
     }
@@ -2463,10 +2520,10 @@ function attachEmbedDrag(em) {
     }
     // Clicking an embed (in any tool except text-on-text) auto-switches to select mode and lifts it as a selection,
     // so rotate/resize handles appear immediately and the user can drag to move.
+    commitSelection();
     const layer = state.layers.find(l => l.embeds.includes(em));
     if (!layer) return;
     if (state.tool !== 'select') setTool('select');
-    cancelSelection();
     const sel = {
       layerId: layer.id,
       bbox: { x: em.x, y: em.y, w: em.w, h: em.h },
@@ -2486,7 +2543,7 @@ function attachEmbedDrag(em) {
   em.el.addEventListener('dblclick', (e) => {
     e.stopPropagation();
     if (em.type === 'text') {
-      if (state.selection) cancelSelection();
+      if (state.selection) commitSelection();
       enterTextEditMode(em);
     }
   });
@@ -2713,6 +2770,7 @@ function exitTextEditMode(em, wasNew) {
     if (layer) layer.embeds = layer.embeds.filter(x => x !== em);
     em.el.remove();
     render();
+    if (!wasNew) pushHistory('Delete text');
     setTool('pen');
     return;
   }
@@ -2781,10 +2839,18 @@ function fitTextEmbedToContent(em) {
 
 function positionEmbeds() {
   for (const layer of state.layers) {
-    for (const em of layer.embeds) updateEmbedTransform(em, false);
+    for (const em of layer.embeds) {
+      em.el.style.display = layer.visible ? '' : 'none';
+      if (layer.visible) updateEmbedTransform(em, false);
+    }
   }
   if (state.selection) {
-    for (const em of state.selection.embeds) updateEmbedTransform(em, true);
+    const sl = state.layers.find(l => l.id === state.selection.layerId);
+    const vis = !sl || sl.visible;
+    for (const em of state.selection.embeds) {
+      em.el.style.display = vis ? '' : 'none';
+      if (vis) updateEmbedTransform(em, true);
+    }
   }
 }
 
@@ -2926,7 +2992,7 @@ window.addEventListener('paste', (e) => {
       }
     }
   }
-  if (state.clipboard) { e.preventDefault(); pasteClipboard(); }
+  if (state.clipboard && (fromChiplot || !dt)) { e.preventDefault(); pasteClipboard(); }
 });
 
 // Drag-and-drop: image files dropped onto the canvas are placed where the drop happens.
@@ -2938,6 +3004,11 @@ wrap.addEventListener('dragover', (e) => {
     e.dataTransfer.dropEffect = 'copy';
   }
 });
+for (const type of ['dragover', 'drop']) {
+  document.addEventListener(type, (e) => {
+    if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault();
+  });
+}
 wrap.addEventListener('drop', (e) => {
   const files = e.dataTransfer && e.dataTransfer.files;
   if (!files || !files.length) return;
@@ -2959,8 +3030,12 @@ function latexToExpr(latex) {
   s = s.replace(/\\cdot/g, '*').replace(/\\times/g, '*').replace(/\\div/g, '/');
   s = s.replace(/\\pi/g, 'pi').replace(/\\theta/g, 'theta').replace(/\\alpha/g, 'alpha').replace(/\\beta/g, 'beta');
   s = s.replace(/\\left/g, '').replace(/\\right/g, '');
-  for (let i = 0; i < 5; i++) s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '(($1)/($2))');
-  for (let i = 0; i < 5; i++) s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, 'sqrt($1)');
+  for (let prev; prev !== s; ) {
+    prev = s;
+    s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '(($1)/($2))')
+         .replace(/\\sqrt\s*\{([^{}]*)\}/g, 'sqrt($1)')
+         .replace(/\^\{([^{}]*)\}/g, '^($1)');
+  }
   // Absolute value: |...| → abs(...). Iterate so nested bars resolve from the inside out
   // (each pass converts the innermost pair, where the contents have no further |).
   for (let i = 0; i < 5; i++) {
@@ -2971,8 +3046,7 @@ function latexToExpr(latex) {
   s = s.replace(/\\sin/g, 'sin').replace(/\\cos/g, 'cos').replace(/\\tan/g, 'tan');
   s = s.replace(/\\arcsin/g, 'asin').replace(/\\arccos/g, 'acos').replace(/\\arctan/g, 'atan');
   s = s.replace(/\\sinh/g, 'sinh').replace(/\\cosh/g, 'cosh').replace(/\\tanh/g, 'tanh');
-  s = s.replace(/\\log/g, 'log10').replace(/\\ln/g, 'log').replace(/\\exp/g, 'exp');
-  for (let i = 0; i < 5; i++) s = s.replace(/\^\{([^{}]*)\}/g, '^($1)');
+  s = s.replace(/\\log/g, 'log').replace(/\\ln/g, 'ln').replace(/\\exp/g, 'exp');
   s = s.replace(/\s+/g, '');
   // Implicit multiplication between adjacent single-letter variables.
   // mathjs treats `xy` as an undefined symbol, not as `x*y`. We rewrite multi-letter
@@ -3001,7 +3075,20 @@ function latexToExpr(latex) {
       if (matched) { out.push(matched); i += matched.length; }
       else { out.push(id[i]); i++; }
     }
-    return out.join('*');
+    const FUNCS = new Set(['sin','cos','tan','asin','acos','atan','arcsin','arccos','arctan',
+                           'sinh','cosh','tanh','log','log10','ln','exp','sqrt','abs']);
+    const RENAME = { log: 'log10', ln: 'log', arcsin: 'asin', arccos: 'acos', arctan: 'atan' };
+    const parts = [];
+    for (let i = 0; i < out.length; i++) {
+      const t = out[i], name = RENAME[t] || t;
+      if (FUNCS.has(t) && i + 1 < out.length) {
+        let j = i + 1;
+        while (j < out.length && !FUNCS.has(out[j])) j++;
+        parts.push(name + '(' + out.slice(i + 1, j).join('*') + ')');
+        i = j - 1;
+      } else parts.push(name);
+    }
+    return parts.join('*');
   };
   s = s.replace(/[A-Za-z][A-Za-z0-9]*/g, (id) => {
     if (id.length === 1) return id;
@@ -3317,7 +3404,7 @@ document.addEventListener('keydown', e => {
   const modal = document.getElementById('graphModal');
   if (!modal || modal.style.display === 'none') return;
   const t = e.target;
-  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.tagName === 'BUTTON') return;
   e.preventDefault();
   document.getElementById('graphPlace').click();
 });
@@ -4255,11 +4342,19 @@ function rotateStrokeAbout(s, ox, oy, deg) {
   }
 }
 
+function replaceGraphStrokes(layer, gid, strokes) {
+  const first = layer.strokes.findIndex(st => st.graphId === gid);
+  const rest = layer.strokes.filter(st => st.graphId !== gid);
+  const at = first < 0 ? rest.length : first;
+  layer.strokes = rest.slice(0, at).concat(strokes, rest.slice(at));
+}
+
 function buildGraphStrokes(rec, parsed, opts = {}) {
   const { originX, originY, screenSpan, settings } = rec;
   const vs = rec.viewScale || state.view.scale;
   const gid = rec.graphId;
   const color = rec.color || state.penColor;
+  const ink = rec.labelColor || '#1a1a1a';
   const px = 1 / vs;
   const out = [];
   if (is3DKind(parsed.kind)) {
@@ -4268,7 +4363,7 @@ function buildGraphStrokes(rec, parsed, opts = {}) {
     const scene = build3DScene(sample, settings, originX, originY, (screenSpan / vs) * 0.27, px, hexToRgba(color, 0.5));
     out.push({ kind: 'polys', items: scene.items, graphId: gid });
     for (const lab of scene.labels) {
-      out.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: '#1a1a1a', anchor: 'middle-center', graphId: gid, opacity: lab.opacity });
+      out.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: ink, anchor: 'middle-center', graphId: gid, opacity: lab.opacity });
     }
   } else {
     const curve = generateEquationStrokes(parsed, settings, originX, originY, screenSpan, vs, gid, color, opts.fast);
@@ -4277,13 +4372,13 @@ function buildGraphStrokes(rec, parsed, opts = {}) {
     if (settings.showBox) {
       const pad = 34 * px;
       const x0 = originX - ww / 2 - pad, y0 = originY - wh / 2 - pad, x1 = originX + ww / 2 + pad, y1 = originY + wh / 2 + pad;
-      out.push({ points: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }, { x: x0, y: y0 }], color: '#1a1a1a', width: 0.8 * px, mode: 'pen', graphId: gid, opacity: 0.2 });
+      out.push({ points: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }, { x: x0, y: y0 }], color: ink, width: 0.8 * px, mode: 'pen', graphId: gid, opacity: 0.2 });
     }
     out.push(...buildAxes2DStrokes(settings, originX, originY, screenSpan, vs, gid, color));
     out.push(...curve);
     if (settings.showTicks) {
       for (const lab of computeTickLabels(settings, originX, originY, screenSpan, vs)) {
-        out.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: 11 * px, color: '#1a1a1a', anchor: lab.anchor, graphId: gid, opacity: 0.7 });
+        out.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: 11 * px, color: ink, anchor: lab.anchor, graphId: gid, opacity: 0.7 });
       }
     }
     let { xMin: xmin, xMax: xmax, yMin: ymin, yMax: ymax } = settings;
@@ -4292,8 +4387,8 @@ function buildGraphStrokes(rec, parsed, opts = {}) {
     const xAxisY = originY - (axisAnchor(ymin, ymax) - (ymin + ymax) / 2) * (wh / (ymax - ymin));
     const yAxisX = originX + (axisAnchor(xmin, xmax) - (xmin + xmax) / 2) * (ww / (xmax - xmin));
     const xl = (settings.xLabel || '').trim(), yl = (settings.yLabel || '').trim();
-    if (xl) out.push({ kind: 'text', x: originX + ww / 2 + 7 * px, y: xAxisY, text: xl, size: 15 * px, italic: true, color: '#1a1a1a', anchor: 'middle-left', graphId: gid, opacity: 0.8 });
-    if (yl) out.push({ kind: 'text', x: yAxisX, y: originY - wh / 2 - 13 * px, text: yl, size: 15 * px, italic: true, color: '#1a1a1a', anchor: 'middle-center', graphId: gid, opacity: 0.8 });
+    if (xl) out.push({ kind: 'text', x: originX + ww / 2 + 7 * px, y: xAxisY, text: xl, size: 15 * px, italic: true, color: ink, anchor: 'middle-left', graphId: gid, opacity: 0.8 });
+    if (yl) out.push({ kind: 'text', x: yAxisX, y: originY - wh / 2 - 13 * px, text: yl, size: 15 * px, italic: true, color: ink, anchor: 'middle-center', graphId: gid, opacity: 0.8 });
   }
   if (rec.rotation) for (const st of out) rotateStrokeAbout(st, originX, originY, rec.rotation);
   return out;
@@ -4334,13 +4429,15 @@ document.getElementById('graphPlace').onclick = () => {
 
   const previousActiveLayerId = state.activeLayerId;
   let layer = old ? state.layers.find(l => l.id === old.layerId) : null;
+  const labelTrunc = parsed.original.length > 32 ? parsed.original.slice(0, 32) + '…' : parsed.original;
   if (!layer) {
-    const labelTrunc = parsed.original.length > 32 ? parsed.original.slice(0, 32) + '…' : parsed.original;
     layer = makeLayer('Plot: ' + labelTrunc);
     state.layers.unshift(layer);
+  } else if (layer.name.startsWith('Plot: ')) {
+    layer.name = 'Plot: ' + labelTrunc;
   }
   if (!old) nextGraphId++;
-  layer.strokes = layer.strokes.filter(st => st.graphId !== graphId).concat(strokes);
+  replaceGraphStrokes(layer, graphId, strokes);
   rec.layerId = layer.id;
   state.graphs[graphId] = rec;
   if (!old) state.activeLayerId = previousActiveLayerId;
@@ -4392,6 +4489,14 @@ function snapshotState() {
       data: { ...em.data },
     })),
   }));
+  const sel = state.selection;
+  if (sel && sel.lifted) {
+    const L = layers.find(l => l.id === sel.layerId);
+    if (L) {
+      L.strokes = reinsertStrokes(L.strokes, sel.strokes.map(cloneStroke), sel.strokeIdx);
+      L.embeds.push(...sel.embeds.map(em => ({ id: em.id, type: em.type, x: em.x, y: em.y, w: em.w, h: em.h, rotation: em.rotation || 0, data: { ...em.data } })));
+    }
+  }
   return {
     layers,
     activeLayerId: state.activeLayerId,
@@ -4412,6 +4517,7 @@ function restoreSnapshot(snap) {
     for (const em of state.selection.embeds) em.el && em.el.remove();
   }
   state.selection = null;
+  state.selDrag = null;
 
   // Rebuild layers with fresh embed DOM elements
   state.layers = snap.layers.map(layer => ({
@@ -4533,7 +4639,7 @@ function renderHistoryPanel() {
    TOOLS HOOKUP
    ========================================================================= */
 document.getElementById('toolCluster').addEventListener('click', (e) => {
-  const btn = e.target.closest('.tool'); if (!btn) return;
+  const btn = e.target.closest('.tool[data-tool]'); if (!btn) return;
   setTool(btn.dataset.tool);
 });
 
@@ -4541,7 +4647,7 @@ function setTool(t) {
   if (state.graphInteract) { exitGraphInteract(); }
   state.tool = t;
   document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
-  if (t !== 'select') cancelSelection();
+  if (t !== 'select') commitSelection();
   if (t === 'graph') {
     // Don't re-open the modal if it's already showing
     const gm = document.getElementById('graphModal');
@@ -4555,11 +4661,7 @@ function setTool(t) {
     canvas.style.cursor = 'crosshair';
     return;
   }
-  if (t === 'pen') canvas.style.cursor = 'crosshair';
-  else if (t === 'eraser') canvas.style.cursor = 'none';
-  else if (t === 'select') canvas.style.cursor = 'crosshair';
-  else if (t === 'text') canvas.style.cursor = 'text';
-  else canvas.style.cursor = 'default';
+  canvas.style.cursor = toolCursor();
   // Sync size select to whichever tool's size is active now. The select only has fixed
   // common values; snap to the nearest one for display.
   const sizeInput = document.getElementById('penSize');
@@ -4587,10 +4689,6 @@ function commitRecolorHistory() {
   _recolorPending = null;
   if (!_recolorAffected) return;
   _recolorAffected = false;
-  if (state.selection && (state.selection.strokes.length || state.selection.embeds.length)) {
-    // Commit the lifted selection so the recolored strokes/embeds are captured by snapshotState
-    commitSelection();
-  }
   pushHistory('Recolor');
 }
 document.getElementById('penColor').addEventListener('input', e => {
@@ -4601,6 +4699,10 @@ document.getElementById('penColor').addEventListener('input', e => {
   if (state.selection) {
     for (const s of state.selection.strokes) {
       if (s.mode !== 'eraser') s.color = c;
+    }
+    for (const gid of new Set(state.selection.strokes.map(s => s.graphId).filter(g => g && state.graphs[g]))) {
+      state.graphs[gid].color = c;
+      state.graphs[gid].labelColor = c;
     }
     for (const em of state.selection.embeds) {
       if (em.type === 'text' && em.data) {
@@ -4642,11 +4744,11 @@ document.getElementById('sizeResetBtn').addEventListener('click', () => {
   if (state.tool === 'eraser') render();
 });
 // Size-lock toggle: when ON, captures the current zoom and uses it for all subsequent stroke
-// widths, so strokes stay visually constant on screen as the user zooms.
-document.getElementById('sizeLockBtn').addEventListener('click', () => {
+// widths, so new strokes keep the same world thickness at any zoom.
+function setSizeLock(on) {
   const btn = document.getElementById('sizeLockBtn');
   const icon = document.getElementById('sizeLockIcon');
-  if (state.sizeLockedScale == null) {
+  if (on) {
     state.sizeLockedScale = state.view.scale;
     btn.classList.add('locked');
     btn.title = 'Unlock stroke size (L) — currently locked at ' + Math.round(state.view.scale * 100) + '% zoom';
@@ -4659,7 +4761,8 @@ document.getElementById('sizeLockBtn').addEventListener('click', () => {
     // Open-padlock icon
     icon.innerHTML = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11 V7 a4 4 0 0 1 8 0"/>';
   }
-});
+}
+document.getElementById('sizeLockBtn').addEventListener('click', () => setSizeLock(state.sizeLockedScale == null));
 document.getElementById('gridBtn').addEventListener('click', () => {
   state.showGrid = !state.showGrid;
   document.getElementById('gridBtn').classList.toggle('active', state.showGrid);
@@ -4709,6 +4812,9 @@ function doFullReset() {
   nextLayerId = 1;
   nextEmbedId = 1;
   nextHistoryId = 1;
+  nextGraphId = 1;
+  state.editingGraphId = null;
+  setSizeLock(false);
 
   // Sync UI controls back to defaults
   document.getElementById('penColor').value = state.penColor;
@@ -4782,7 +4888,9 @@ document.getElementById('zoomSlider').addEventListener('input', e => {
   const zoomEl = document.getElementById('zoomReadout');
   if (!zoomEl) return;
   const commit = () => {
-    const raw = zoomEl.value.trim().replace(/%/g, '');
+    const typed = zoomEl.value.trim();
+    if (typed === zoomEl.dataset.orig) { render(); return; }
+    const raw = typed.replace(/%/g, '');
     let n = parseFloat(raw);
     if (!isFinite(n) || n <= 0) {
       // Reset to current on invalid input
@@ -4790,7 +4898,7 @@ document.getElementById('zoomSlider').addEventListener('input', e => {
       return;
     }
     // Under 4 → treated as a direct multiplier (e.g. "1.5" → 150%); otherwise as a percentage.
-    const targetScale = n < 4 ? n : n / 100;
+    const targetScale = n < 4 && !/%$/.test(typed) ? n : n / 100;
     const clamped = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, targetScale));
     // Zoom around viewport center so the change stays visually anchored.
     const r = wrap.getBoundingClientRect();
@@ -4805,13 +4913,14 @@ document.getElementById('zoomSlider').addEventListener('input', e => {
   zoomEl.addEventListener('focus', () => {
     // Show plain number without % on focus so typing is easier
     zoomEl.value = Math.round(state.view.scale * 100);
+    zoomEl.dataset.orig = zoomEl.value;
     zoomEl.select();
   });
   zoomEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); zoomEl.blur(); }
     else if (e.key === 'Escape') {
       // Restore without applying, then blur
-      zoomEl.value = Math.round(state.view.scale * 100) + '%';
+      zoomEl.value = zoomEl.dataset.orig;
       zoomEl.blur();
     }
   });
@@ -4881,6 +4990,7 @@ document.addEventListener('keydown', (e) => {
 
   const t = e.target.tagName;
   if (t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT') return;
+  if (document.getElementById('graphModal').style.display !== 'none' || document.getElementById('confirmModal').style.display !== 'none') return;
 
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); redo(); return; }
@@ -4905,6 +5015,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { if (state.selection) { e.preventDefault(); commitSelection(); } return; }
 
   // Tool hotkeys (letters and digits)
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === 'l') { document.getElementById('sizeLockBtn').click(); return; }
   if (k === 'p') setTool('pen');
@@ -4914,6 +5025,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === '1') { e.preventDefault(); setTool('graph'); }
   else if (k === '2') setTool('axes2d');
   else if (k === '3') setTool('axes3d');
+  else if (k === 'i') _imageFileInput.click();
 });
 
 function closeModal(id) {
@@ -4960,14 +5072,6 @@ document.getElementById('confirmModal').addEventListener('keydown', (e) => {
    ========================================================================= */
 function boardData() {
   const snap = snapshotState();
-  const sel = state.selection;
-  if (sel && sel.lifted) {
-    const L = snap.layers.find(l => l.id === sel.layerId);
-    if (L) {
-      L.strokes.push(...sel.strokes.map(cloneStroke));
-      L.embeds.push(...sel.embeds.map(em => ({ id: em.id, type: em.type, x: em.x, y: em.y, w: em.w, h: em.h, rotation: em.rotation || 0, data: { ...em.data } })));
-    }
-  }
   return { app: 'chiplot', version: 1, snapshot: snap, view: { ...state.view }, bgColor: state.bgColor };
 }
 
@@ -4991,10 +5095,12 @@ function applyBoard(data, label, freshHistory) {
 }
 
 function downloadBoard() {
+  commitSelection();
   const blob = new Blob([JSON.stringify(boardData())], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'chiplot-' + new Date().toISOString().slice(0, 10) + '.json';
+  const now = new Date();
+  a.download = 'chiplot-' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '.json';
   document.body.appendChild(a);
   a.click();
   a.remove();
