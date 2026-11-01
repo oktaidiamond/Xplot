@@ -1869,7 +1869,13 @@ function regenInteract(fast) {
   const layer = g && state.layers.find(l => l.id === g.layerId);
   if (!layer) { exitGraphInteract(true); return; }
   const opts = { fast, allowEmpty: true };
-  if (g.is3D) {
+  if (g.is3D && gi.parsed.kind === 'implicit3d') {
+    const st = g.settings;
+    const key = [st.xMin, st.xMax, st.yMin, st.yMax, st.zMin, st.zMax].join(',');
+    if (gi.key !== key) { gi.key = key; gi.sample = null; gi.fastSample = null; }
+    if (fast) opts.sample = gi.fastSample || (gi.fastSample = sample3D(gi.parsed, st, 30));
+    else opts.sample = gi.sample || (gi.sample = sample3D(gi.parsed, st, SURFACE_N));
+  } else if (g.is3D) {
     const st = g.settings;
     const key = [st.xMin, st.xMax, st.yMin, st.yMax, st.zMin, st.zMax].join(',');
     if (gi.key !== key || (!fast && !gi.full)) {
@@ -3160,7 +3166,7 @@ let graphMode3D = false;
 let graphYAutoSet = false;
 
 function is3DKind(kind) {
-  return kind === 'z_of_xy' || kind === 'x_of_yz' || kind === 'y_of_xz';
+  return kind === 'z_of_xy' || kind === 'x_of_yz' || kind === 'y_of_xz' || kind === 'implicit3d';
 }
 
 function setGraphMode(is3D) {
@@ -3184,11 +3190,12 @@ function updateFitButtonLabel() {
       const k = parseEquation(document.getElementById('g1d_fn').value).kind;
       if (k === 'x_of_yz') v = 'x';
       else if (k === 'y_of_xz') v = 'y';
+      else if (k === 'implicit3d') v = 'xyz';
     } catch (_) {}
   }
   const btn = document.getElementById('gs_autoFitBtn');
   btn.textContent = 'Fit ' + v + ' to plot';
-  btn.title = 'Fit ' + v + ' range to function values';
+  btn.title = v === 'xyz' ? 'Fit x, y and z ranges to the surface' : 'Fit ' + v + ' range to function values';
 }
 
 function syncGraphModeFromInput() {
@@ -3663,11 +3670,10 @@ function parseEquation(latex) {
   // Split on the FIRST "=" — anything beyond is RHS
   const eqIdx = original.indexOf('=');
   const usesVar = (expr, v) => new RegExp('(^|[^A-Za-z])' + v + '(?![A-Za-z])').test(expr);
-  const unsupported3D = () => new Error("implicit 3D surfaces aren't supported — write it as z = f(x, y)");
   if (eqIdx < 0) {
     // No "=" at all: treat as bare RHS, default to y = expr(x)
     const expr = latexToExpr(original);
-    if (usesVar(expr, 'z')) throw unsupported3D();
+    if (usesVar(expr, 'z')) throw new Error('add an = to plot a surface in x, y and z');
     if (usesVar(expr, 'y')) return { kind: 'z_of_xy', expr, original: 'z = ' + original };
     return { kind: 'y_of_x', expr, original: 'y = ' + original };
   }
@@ -3677,23 +3683,27 @@ function parseEquation(latex) {
     const lhs3 = lhsRaw.replace(/\s/g, '');
     const rhs3 = rhsRaw.replace(/\s/g, '');
     const lhsE = latexToExpr(lhsRaw), rhsE = latexToExpr(rhsRaw);
+    const implicit3D = () => ({ kind: 'implicit3d', expr: '(' + lhsE + ')-(' + rhsE + ')', original });
     if (lhs3 === 'z' || /^[a-zA-Z]\(x,y\)$/.test(lhs3)) {
-      if (usesVar(rhsE, 'z')) throw unsupported3D();
+      if (usesVar(rhsE, 'z')) {
+        if (lhs3 !== 'z') throw new Error("a function of x and y can't use z");
+        return implicit3D();
+      }
       return { kind: 'z_of_xy', expr: rhsE, original };
     }
     if (rhs3 === 'z') {
-      if (usesVar(lhsE, 'z')) throw unsupported3D();
+      if (usesVar(lhsE, 'z')) return implicit3D();
       return { kind: 'z_of_xy', expr: lhsE, original };
     }
     if (lhs3 === 'x' && usesVar(rhsE, 'z')) {
-      if (usesVar(rhsE, 'x')) throw unsupported3D();
+      if (usesVar(rhsE, 'x')) return implicit3D();
       return { kind: 'x_of_yz', expr: rhsE, original };
     }
     if (lhs3 === 'y' && usesVar(rhsE, 'z')) {
-      if (usesVar(rhsE, 'y')) throw unsupported3D();
+      if (usesVar(rhsE, 'y')) return implicit3D();
       return { kind: 'y_of_xz', expr: rhsE, original };
     }
-    if (usesVar(lhsE, 'z') || usesVar(rhsE, 'z')) throw unsupported3D();
+    if (usesVar(lhsE, 'z') || usesVar(rhsE, 'z')) return implicit3D();
   }
 
   // Detect explicit forms by examining the LHS:
@@ -4023,7 +4033,60 @@ function axisAnchor(lo, hi) {
   return Math.abs(lo) < Math.abs(hi) ? lo : hi;
 }
 
+const IMPLICIT_N = 36, IMPLICIT_FAST_N = 22;
+
+function sampleImplicit3D(parsed, settings, n) {
+  const R = ranges3D(settings);
+  const f = math.compile(parsed.expr);
+  const s = n + 3, c = s - 1;
+  const F = new Float64Array(s * s * s);
+  const scope = { x: 0, y: 0, z: 0 };
+  const at = (r, i) => r[0] + (r[1] - r[0]) * (i - 1) / n;
+  for (let k = 0; k < s; k++) {
+    scope.z = at(R.z, k);
+    for (let j = 0; j < s; j++) {
+      scope.y = at(R.y, j);
+      for (let i = 0; i < s; i++) {
+        scope.x = at(R.x, i);
+        let v; try { v = f.evaluate(scope); } catch (_) { v = NaN; }
+        F[i + s * (j + s * k)] = typeof v === 'number' && isFinite(v) ? v : NaN;
+      }
+    }
+  }
+  const g = (i, j, k) => i + s * (j + s * k);
+  const cell = (i, j, k) => i + c * (j + c * k);
+  const toBox = t => -1 + 2 * (t - 1) / n;
+  const E = [[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1],[1,0,0,1,1,0],[1,0,0,1,0,1],[0,1,0,1,1,0],
+             [0,1,0,0,1,1],[0,0,1,1,0,1],[0,0,1,0,1,1],[1,1,0,1,1,1],[1,0,1,1,1,1],[0,1,1,1,1,1]];
+  const vid = new Int32Array(c * c * c).fill(-1);
+  const V = [];
+  for (let k = 0; k < c; k++) for (let j = 0; j < c; j++) for (let i = 0; i < c; i++) {
+    let cnt = 0, sx = 0, sy = 0, sz = 0;
+    for (const e of E) {
+      const a = F[g(i + e[0], j + e[1], k + e[2])], b = F[g(i + e[3], j + e[4], k + e[5])];
+      if (a !== a || b !== b || (a < 0) === (b < 0)) continue;
+      const t = a / (a - b);
+      sx += e[0] + t * (e[3] - e[0]); sy += e[1] + t * (e[4] - e[1]); sz += e[2] + t * (e[5] - e[2]);
+      cnt++;
+    }
+    if (!cnt) continue;
+    vid[cell(i, j, k)] = V.length / 3;
+    V.push(toBox(i + sx / cnt), toBox(j + sy / cnt), toBox(k + sz / cnt));
+  }
+  const Q = [];
+  const crosses = (a, b) => a === a && b === b && (a < 0) !== (b < 0);
+  const quad = (a, b, cc, d) => { const q = [vid[a], vid[b], vid[cc], vid[d]]; if (q[0] >= 0 && q[1] >= 0 && q[2] >= 0 && q[3] >= 0) Q.push(q); };
+  for (let k = 1; k <= n + 1; k++) for (let j = 1; j <= n + 1; j++) for (let i = 1; i <= n + 1; i++) {
+    const v0 = F[g(i, j, k)];
+    if (i <= n && crosses(v0, F[g(i + 1, j, k)])) quad(cell(i, j - 1, k - 1), cell(i, j, k - 1), cell(i, j, k), cell(i, j - 1, k));
+    if (j <= n && crosses(v0, F[g(i, j + 1, k)])) quad(cell(i - 1, j, k - 1), cell(i, j, k - 1), cell(i, j, k), cell(i - 1, j, k));
+    if (k <= n && crosses(v0, F[g(i, j, k + 1)])) quad(cell(i - 1, j - 1, k), cell(i, j - 1, k), cell(i, j, k), cell(i - 1, j, k));
+  }
+  return { implicit: true, V, Q, any: Q.length > 0 };
+}
+
 function sample3D(parsed, settings, N) {
+  if (parsed.kind === 'implicit3d') return sampleImplicit3D(parsed, settings, N >= SURFACE_N ? IMPLICIT_N : IMPLICIT_FAST_N);
   const R = ranges3D(settings);
   const map = { z_of_xy: ['x', 'y', 'z'], x_of_yz: ['y', 'z', 'x'], y_of_xz: ['x', 'z', 'y'] }[parsed.kind];
   const [uName, vName, dName] = map;
@@ -4112,7 +4175,36 @@ function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
   const labels = [];
   const lineBias = 0.02;
 
-  if (sample && sample.any) {
+  if (sample && sample.any && sample.implicit) {
+    const { V, Q } = sample;
+    let zLo = Infinity, zHi = -Infinity;
+    for (let k = 2; k < V.length; k += 3) { if (V[k] < zLo) zLo = V[k]; if (V[k] > zHi) zHi = V[k]; }
+    zLo = Math.max(-1, zLo); zHi = Math.min(1, zHi);
+    const zSpan = zHi - zLo > 1e-9 ? zHi - zLo : 1;
+    const edge = 'rgba(20,28,45,0.32)';
+    const ew = 0.6 * px;
+    for (const q of Q) {
+      const a = q[0] * 3, b = q[1] * 3, c = q[2] * 3, d = q[3] * 3;
+      const e1 = [V[c] - V[a], V[c + 1] - V[a + 1], V[c + 2] - V[a + 2]], e2 = [V[d] - V[b], V[d + 1] - V[b + 1], V[d + 2] - V[b + 2]];
+      const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const nl = Math.hypot(n[0], n[1], n[2]) || 1;
+      const lam = Math.abs((n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / (nl * Ll));
+      let poly = [a, b, c, d].map(o => [V[o], V[o + 1], V[o + 2]]);
+      if (poly.some(v => v[0] < -1 || v[0] > 1 || v[1] < -1 || v[1] > 1 || v[2] < -1 || v[2] > 1)) {
+        poly = clipPolyDep(clipPolyDep(clipPolyDep(poly, 0), 1), 2);
+        if (poly.length < 3) continue;
+      }
+      const p = [];
+      let zs = 0, hs = 0;
+      for (const v of poly) {
+        const pr = proj(v[0], v[1], v[2]);
+        p.push(pr[0], pr[1]);
+        zs += pr[2];
+        hs += v[2];
+      }
+      items.push({ z: zs / poly.length, p, f: surfaceColor(Math.max(0, Math.min(1, (hs / poly.length - zLo) / zSpan)), 0.62 + 0.38 * lam), s: edge, w: ew });
+    }
+  } else if (sample && sample.any) {
     const { N, pts, dep, ok } = sample;
     let dLo = Infinity, dHi = -Infinity;
     for (let k = 0; k < dep.length; k++) if (ok[k]) { const v = Math.max(-1, Math.min(1, dep[k])); if (v < dLo) dLo = v; if (v > dHi) dHi = v; }
@@ -4300,7 +4392,69 @@ function attachPreview3DDrag(cv) {
   cv.addEventListener('pointercancel', end);
 }
 
+function scanImplicit3D(f, R, n) {
+  const s = n + 1;
+  const F = new Float64Array(s * s * s);
+  const scope = { x: 0, y: 0, z: 0 };
+  const at = (r, i) => r[0] + (r[1] - r[0]) * i / n;
+  for (let k = 0; k < s; k++) {
+    scope.z = at(R.z, k);
+    for (let j = 0; j < s; j++) {
+      scope.y = at(R.y, j);
+      for (let i = 0; i < s; i++) {
+        scope.x = at(R.x, i);
+        let v; try { v = f.evaluate(scope); } catch (_) { v = NaN; }
+        F[i + s * (j + s * k)] = typeof v === 'number' && isFinite(v) ? v : NaN;
+      }
+    }
+  }
+  let found = false, wall = false, maxAbs = 0;
+  const edge = (i, j, k, di, dj, dk, onWall) => {
+    const a = F[i + s * (j + s * k)], b = F[i + di + s * (j + dj + s * (k + dk))];
+    if (a !== a || b !== b || (a < 0) === (b < 0)) return;
+    found = true;
+    if (onWall) wall = true;
+    const t = a / (a - b);
+    maxAbs = Math.max(maxAbs, Math.abs(at(R.x, i + t * di)), Math.abs(at(R.y, j + t * dj)), Math.abs(at(R.z, k + t * dk)));
+  };
+  const side = q => q === 0 || q === n;
+  for (let k = 0; k <= n; k++) for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+    if (i < n) edge(i, j, k, 1, 0, 0, side(j) || side(k));
+    if (j < n) edge(i, j, k, 0, 1, 0, side(i) || side(k));
+    if (k < n) edge(i, j, k, 0, 0, 1, side(i) || side(j));
+  }
+  return { found, wall, maxAbs };
+}
+
+function autoFitImplicit3D(parsed) {
+  let f;
+  try { f = math.compile(parsed.expr); } catch (_) { return; }
+  const setHalf = half => {
+    for (const a of ['x', 'y', 'z']) {
+      document.getElementById('gs_' + a + 'Min').value = +(-half).toPrecision(4);
+      document.getElementById('gs_' + a + 'Max').value = +half.toPrecision(4);
+    }
+    graphYAutoSet = false;
+    scheduleLivePreview();
+  };
+  let firstSeen = null;
+  for (let e = -6; e <= 7; e++) {
+    const h = 10 * Math.pow(2, e);
+    const r = scanImplicit3D(f, { x: [-h, h], y: [-h, h], z: [-h, h] }, 16);
+    if (r.found && !r.wall) {
+      const h2 = Math.min(h, r.maxAbs * 1.3 + h / 8);
+      const r2 = scanImplicit3D(f, { x: [-h2, h2], y: [-h2, h2], z: [-h2, h2] }, 24);
+      setHalf((r2.found && !r2.wall ? r2.maxAbs : r.maxAbs + h / 8) * 1.1 || h);
+      return;
+    }
+    if (r.found && firstSeen === null) firstSeen = h;
+  }
+  if (firstSeen === null || scanImplicit3D(f, ranges3D(readGraphSettings()), 16).found) return;
+  setHalf(firstSeen * 2);
+}
+
 function autoFit3D(parsed) {
+  if (parsed.kind === 'implicit3d') { autoFitImplicit3D(parsed); return; }
   const s = readGraphSettings();
   const R = ranges3D(s);
   const map = { z_of_xy: ['x', 'y', 'z'], x_of_yz: ['y', 'z', 'x'], y_of_xz: ['x', 'z', 'y'] }[parsed.kind];
