@@ -589,6 +589,8 @@ html, body { overscroll-behavior: none; }
 .graph-modal.mode-3d .only-3d-inline { display: inline !important; }
 .graph-modal.mode-3d .only-2d-inline { display: none !important; }
 .graph-preview canvas.p3d { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.graph-modal:not(.mode-3d) .graph-preview { cursor: grab; touch-action: none; }
+.graph-modal:not(.mode-3d) .graph-preview.panning { cursor: grabbing; }
 .graph-preview canvas.p3d:active { cursor: grabbing; }
 /* Actions half: push actions to the right edge of the row */
 .gs-actions-half { justify-content: flex-end; }
@@ -629,6 +631,7 @@ html, body { overscroll-behavior: none; }
 /* Wrap the preview in a padded container so the plot doesn't kiss the borders */
 .graph-preview-wrap { background: var(--paper); border: 1px solid var(--chrome-line); border-radius: 5px; padding: 16px; min-height: 0; height: 100%; box-sizing: border-box; }
 .graph-preview { background: transparent; position: relative; height: 100%; min-height: 0; }
+.preview-notice { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2; padding: 5px 10px; border-radius: 4px; background: rgba(255,255,255,0.94); border: 1px solid #e3d6d2; color: #a64a3a; font-family: var(--mono); font-size: 12px; white-space: nowrap; pointer-events: none; }
 .katex-display { margin: 0.4em 0 !important; }
 /* Inside text embeds, display-math is centered on its own line. Just zero out the
    outer margin so there's no extra space above/below. */
@@ -1235,7 +1238,7 @@ function drawGrid(w, h) {
   ctx.restore();
 }
 
-function drawPolyItems(c, items) {
+function drawPolyItems(c, items, paper) {
   c.lineCap = 'butt';
   c.lineJoin = 'round';
   for (const it of items) {
@@ -1244,7 +1247,7 @@ function drawPolyItems(c, items) {
     c.moveTo(p[0], p[1]);
     for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]);
     if (it.f) { c.closePath(); c.fillStyle = it.f; c.fill(); }
-    if (it.s) { c.strokeStyle = it.s; c.lineWidth = it.w; c.stroke(); }
+    if (it.s) { c.strokeStyle = it.a ? (mixOverPaper(it.s, it.a, paper) || hexToRgba(it.s, it.a)) : it.s; c.lineWidth = it.w; c.stroke(); }
   }
 }
 
@@ -1311,9 +1314,10 @@ function drawStroke(s, c) {
   if (!s.points || !s.points.length) return;
   c.save();
   if (s.mode === 'eraser') c.globalCompositeOperation = 'destination-out';
-  if (typeof s.opacity === 'number') c.globalAlpha = s.opacity;
-  c.strokeStyle = s.color;
-  c.fillStyle = s.color;
+  const solid = typeof s.opacity === 'number' && s.graphId && s.mode !== 'eraser' ? mixOverPaper(s.color, s.opacity) : null;
+  if (!solid && typeof s.opacity === 'number') c.globalAlpha = s.opacity;
+  c.strokeStyle = solid || s.color;
+  c.fillStyle = solid || s.color;
   c.lineWidth = s.width;
   c.lineCap = 'round';
   c.lineJoin = 'round';
@@ -3463,6 +3467,45 @@ document.getElementById('gs_autoFitBtn').addEventListener('click', () => {
 
 // Scroll on the preview to zoom in/out. Zoom is symmetric about each axis's midpoint, so
 // scrolling preserves the visible center. Wheel-up zooms in (smaller range), wheel-down out.
+(function setupPreviewPan() {
+  const box = document.getElementById('graphPreview_box');
+  let pan = null, raf = 0;
+  const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : def; };
+  const round = v => Math.abs(v) >= 100 ? +v.toFixed(1) : +v.toFixed(4);
+  box.addEventListener('pointerdown', (e) => {
+    if (graphMode3D || e.button !== 0 || !box.querySelector('.plot-container')) return;
+    let xMin = num('gs_xMin', -10), xMax = num('gs_xMax', 10), yMin = num('gs_yMin', -10), yMax = num('gs_yMax', 10);
+    if (!(xMax > xMin)) { xMin = -10; xMax = 10; }
+    if (!(yMax > yMin)) { yMin = -10; yMax = 10; }
+    const fl = box._fullLayout;
+    const rect = box.getBoundingClientRect();
+    const xLen = (fl && fl.xaxis && fl.xaxis._length) || rect.width;
+    const yLen = (fl && fl.yaxis && fl.yaxis._length) || rect.height;
+    pan = { sx: e.clientX, sy: e.clientY, xMin, xMax, yMin, yMax, kx: (xMax - xMin) / xLen, ky: (yMax - yMin) / yLen };
+    box.setPointerCapture(e.pointerId);
+    box.classList.add('panning');
+    e.preventDefault();
+  });
+  box.addEventListener('pointermove', (e) => {
+    if (!pan) return;
+    const dx = (e.clientX - pan.sx) * pan.kx, dy = (e.clientY - pan.sy) * pan.ky;
+    document.getElementById('gs_xMin').value = round(pan.xMin - dx);
+    document.getElementById('gs_xMax').value = round(pan.xMax - dx);
+    document.getElementById('gs_yMin').value = round(pan.yMin + dy);
+    document.getElementById('gs_yMax').value = round(pan.yMax + dy);
+    graphYAutoSet = false;
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; previewGraph(); });
+  });
+  const end = (e) => {
+    if (!pan) return;
+    pan = null;
+    box.classList.remove('panning');
+    try { box.releasePointerCapture(e.pointerId); } catch (_) {}
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+})();
+
 document.getElementById('graphPreview_box').addEventListener('wheel', (e) => {
   e.preventDefault();
   const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : def; };
@@ -3493,6 +3536,13 @@ document.getElementById('graphPreview_box').addEventListener('wheel', (e) => {
 
 // Show an error message inside the graph preview box. Used by previewGraph and the
 // place handler when the equation can't be parsed or doesn't produce any output.
+function showGraphPreviewNotice(message) {
+  const box = document.getElementById('graphPreview_box');
+  let n = box.querySelector('.preview-notice');
+  if (!n) { n = document.createElement('div'); n.className = 'preview-notice'; box.appendChild(n); }
+  n.textContent = message;
+}
+
 function showGraphPreviewError(message) {
   const box = document.getElementById('graphPreview_box');
   box.innerHTML =
@@ -3503,6 +3553,8 @@ function showGraphPreviewError(message) {
 
 function previewGraph() {
   const box = document.getElementById('graphPreview_box');
+  const notice = box.querySelector('.preview-notice');
+  if (notice) notice.remove();
   // Defer-loaded deps may not be ready yet on the first preview call; bail and let the
   // openGraphModal promise call us again once they're ready.
   if (typeof Plotly === 'undefined' || typeof math === 'undefined') {
@@ -3894,29 +3946,33 @@ function buildAxes2DStrokes(settings, originX, originY, screenSpan, viewScale, g
   const out = [];
 
   // Helper: build an arrowed-line stroke for one axis.
-  const makeAxis = (ax, ay, bx, by) => {
+  const makeAxis = (ax, ay, bx, by, arrowA, arrowB) => {
     const dx = bx - ax, dy = by - ay;
     const len = Math.hypot(dx, dy) || 1;
     const dirX = dx / len, dirY = dy / len;
     const perpX = -dirY, perpY = dirX;
     const pts = [];
     let baseX = ax + dirX * arrowLen, baseY = ay + dirY * arrowLen;
-    pts.push({ x: baseX + perpX * arrowWidth/2, y: baseY + perpY * arrowWidth/2 });
-    pts.push({ x: ax, y: ay });
-    pts.push({ x: baseX - perpX * arrowWidth/2, y: baseY - perpY * arrowWidth/2 });
+    if (arrowA) {
+      pts.push({ x: baseX + perpX * arrowWidth/2, y: baseY + perpY * arrowWidth/2 });
+      pts.push({ x: ax, y: ay });
+      pts.push({ x: baseX - perpX * arrowWidth/2, y: baseY - perpY * arrowWidth/2 });
+    }
     pts.push({ x: ax, y: ay });
     pts.push({ x: bx, y: by });
     baseX = bx - dirX * arrowLen; baseY = by - dirY * arrowLen;
-    pts.push({ x: baseX + perpX * arrowWidth/2, y: baseY + perpY * arrowWidth/2 });
-    pts.push({ x: bx, y: by });
-    pts.push({ x: baseX - perpX * arrowWidth/2, y: baseY - perpY * arrowWidth/2 });
+    if (arrowB) {
+      pts.push({ x: baseX + perpX * arrowWidth/2, y: baseY + perpY * arrowWidth/2 });
+      pts.push({ x: bx, y: by });
+      pts.push({ x: baseX - perpX * arrowWidth/2, y: baseY - perpY * arrowWidth/2 });
+    }
     out.push({ points: pts, color, width: lineWidth, mode: 'pen', graphId, opacity: 0.5 });
   };
 
   // x axis: spans world x = originX - halfX → originX + halfX, at the chosen y line
-  makeAxis(originX - halfX, xAxisWorldY, originX + halfX, xAxisWorldY);
+  makeAxis(originX - halfX, xAxisWorldY, originX + halfX, xAxisWorldY, xmin < 0, xmax > 0);
   // y axis: spans world y = originY - halfY → originY + halfY, at the chosen x line
-  makeAxis(yAxisWorldX, originY - halfY, yAxisWorldX, originY + halfY);
+  makeAxis(yAxisWorldX, originY - halfY, yAxisWorldX, originY + halfY, ymax > 0, ymin < 0);
 
   // Tick marks (if enabled). Each tick is a tiny perpendicular line.
   // Step is auto-picked per axis based on its range, so the count of ticks stays sane
@@ -3935,7 +3991,7 @@ function buildAxes2DStrokes(settings, originX, originY, screenSpan, viewScale, g
     let xCount = 0, yCount = 0;
     for (let v = xStart; v <= xmax + xStep * 0.001 && xCount < maxTicks; v += xStep, xCount++) {
       if (Math.abs(v) < xStep * 0.0001) continue;  // skip the origin tick
-      if (v < xmin + xArrowZone || v > xmax - xArrowZone) continue;  // under an arrow
+      if ((xmin < 0 && v < xmin + xArrowZone) || (xmax > 0 && v > xmax - xArrowZone)) continue;  // under an arrow
       const wx = originX + (v - cxMath) * ux;
       out.push({
         points: [
@@ -3947,7 +4003,7 @@ function buildAxes2DStrokes(settings, originX, originY, screenSpan, viewScale, g
     }
     for (let v = yStart; v <= ymax + yStep * 0.001 && yCount < maxTicks; v += yStep, yCount++) {
       if (Math.abs(v) < yStep * 0.0001) continue;
-      if (v < ymin + yArrowZone || v > ymax - yArrowZone) continue;  // under an arrow
+      if ((ymin < 0 && v < ymin + yArrowZone) || (ymax > 0 && v > ymax - yArrowZone)) continue;  // under an arrow
       const wy = originY - (v - cyMath) * uy;
       out.push({
         points: [
@@ -4000,13 +4056,13 @@ function computeTickLabels(settings, originX, originY, screenSpan, viewScale) {
   const yStart = Math.ceil(ymin / yStep) * yStep;
   for (let v = xStart, n = 0; v <= xmax + xStep * 0.001 && n < 200; v += xStep, n++) {
     if (Math.abs(v) < xStep * 0.0001) continue;
-    if (v < xmin + xArrowZone || v > xmax - xArrowZone) continue;
+    if ((xmin < 0 && v < xmin + xArrowZone) || (xmax > 0 && v > xmax - xArrowZone)) continue;
     const wx = originX + (v - cxMath) * ux;
     labels.push({ x: wx, y: xAxisWorldY + tickLen/2 + labelGap, text: fmt(v, xStep), anchor: 'top-center' });
   }
   for (let v = yStart, n = 0; v <= ymax + yStep * 0.001 && n < 200; v += yStep, n++) {
     if (Math.abs(v) < yStep * 0.0001) continue;
-    if (v < ymin + yArrowZone || v > ymax - yArrowZone) continue;
+    if ((ymin < 0 && v < ymin + yArrowZone) || (ymax > 0 && v > ymax - yArrowZone)) continue;
     const wy = originY - (v - cyMath) * uy;
     labels.push({ x: yAxisWorldX - tickLen/2 - labelGap, y: wy, text: fmt(v, yStep), anchor: 'middle-right' });
   }
@@ -4152,6 +4208,14 @@ function surfaceColor(t, shade) {
   return 'rgb(' + ch(0) + ',' + ch(1) + ',' + ch(2) + ')';
 }
 
+function mixOverPaper(hex, alpha, paper) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''), b = /^#?([0-9a-f]{6})$/i.exec(paper || state.bgColor || '');
+  if (!m || !b) return null;
+  const n = parseInt(m[1], 16), p = parseInt(b[1], 16);
+  const mix = sh => Math.round(((n >> sh) & 255) * alpha + ((p >> sh) & 255) * (1 - alpha));
+  return 'rgb(' + mix(16) + ',' + mix(8) + ',' + mix(0) + ')';
+}
+
 function hexToRgba(hex, alpha) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
   const n = m ? parseInt(m[1], 16) : 0x1a1a1a;
@@ -4241,18 +4305,18 @@ function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
     }
   }
 
-  const addLine = (A, B, segs, color, w) => {
+  const addLine = (A, B, segs, color, w, alpha) => {
     for (let k = 0; k < segs; k++) {
       const t0 = k / segs, t1 = (k + 1) / segs;
       const a = proj(A[0] + (B[0] - A[0]) * t0, A[1] + (B[1] - A[1]) * t0, A[2] + (B[2] - A[2]) * t0);
       const b = proj(A[0] + (B[0] - A[0]) * t1, A[1] + (B[1] - A[1]) * t1, A[2] + (B[2] - A[2]) * t1);
-      items.push({ z: (a[2] + b[2]) / 2 + lineBias, p: [a[0], a[1], b[0], b[1]], s: color, w });
+      items.push({ z: (a[2] + b[2]) / 2 + lineBias, p: [a[0], a[1], b[0], b[1]], s: color, w, a: alpha });
     }
   };
 
   if (settings.showBox) {
-    const boxColor = 'rgba(26,26,26,0.2)';
     const c = [-1, 1];
+    const boxColor = 'rgba(26,26,26,0.2)';
     for (const y of c) for (const z of c) addLine([-1, y, z], [1, y, z], 8, boxColor, 0.8 * px);
     for (const x of c) for (const z of c) addLine([x, -1, z], [x, 1, z], 8, boxColor, 0.8 * px);
     for (const x of c) for (const y of c) addLine([x, y, -1], [x, y, 1], 8, boxColor, 0.8 * px);
@@ -4269,7 +4333,7 @@ function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
   for (let ax = 0; ax < 3; ax++) {
     const A = o.slice(), B = o.slice();
     A[ax] = -1; B[ax] = 1;
-    addLine(A, B, 24, aColor, aw);
+    addLine(A, B, 24, aColor, aw, 0.5);
     const pA = proj(...A), pB = proj(...B);
     const sx = pB[0] - pA[0], sy = pB[1] - pA[1];
     const slen = Math.hypot(sx, sy);
@@ -4283,7 +4347,7 @@ function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
       items.push({
         z: pB[2] + lineBias,
         p: [bx + perp[0] * aWid / 2, by + perp[1] * aWid / 2, pB[0], pB[1], bx - perp[0] * aWid / 2, by - perp[1] * aWid / 2],
-        s: aColor, w: aw,
+        s: aColor, w: aw, a: 0.5,
       });
     }
     const letter = (letters[ax] || '').trim();
@@ -4300,7 +4364,7 @@ function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
         if (hasArrow && v > hi - zone) continue;
         const Pt = o.slice(); Pt[ax] = nrm(v, [lo, hi]);
         const q = proj(...Pt);
-        items.push({ z: q[2] + lineBias, p: [q[0] - perp[0] * tickLen / 2, q[1] - perp[1] * tickLen / 2, q[0] + perp[0] * tickLen / 2, q[1] + perp[1] * tickLen / 2], s: aColor, w: aw });
+        items.push({ z: q[2] + lineBias, p: [q[0] - perp[0] * tickLen / 2, q[1] - perp[1] * tickLen / 2, q[0] + perp[0] * tickLen / 2, q[1] + perp[1] * tickLen / 2], s: aColor, w: aw, a: 0.5 });
         const text = fmtTick(v, step);
         const off = tickLen / 2 + 4 * px + Math.abs(perp[0]) * 0.3 * labelSize * text.length + Math.abs(perp[1]) * 0.5 * labelSize;
         labels.push({ x: q[0] + perp[0] * off, y: q[1] + perp[1] * off, text, size: labelSize, opacity: 0.7 });
@@ -4310,7 +4374,7 @@ function build3DScene(sample, settings, cx, cy, unit, px, axisColor) {
 
   items.sort((a, b) => a.z - b.z);
   return {
-    items: items.map(it => (it.f ? { p: it.p, f: it.f, s: it.s, w: it.w } : { p: it.p, s: it.s, w: it.w })),
+    items: items.map(it => (it.f ? { p: it.p, f: it.f, s: it.s, w: it.w } : it.a ? { p: it.p, s: it.s, w: it.w, a: it.a } : { p: it.p, s: it.s, w: it.w })),
     labels,
   };
 }
@@ -4358,8 +4422,8 @@ function draw3DPreview() {
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
   const settings = { ...preview3DState.settings, azim: graph3DView.azim, elev: graph3DView.elev };
-  const scene = build3DScene(preview3DState.drawSample, settings, w / 2, h / 2, Math.min(w, h) * 0.28, 1, hexToRgba(state.penColor, 0.5));
-  drawPolyItems(c, scene.items);
+  const scene = build3DScene(preview3DState.drawSample, settings, w / 2, h / 2, Math.min(w, h) * 0.28, 1, state.penColor);
+  drawPolyItems(c, scene.items, '#ffffff');
   for (const lab of scene.labels) {
     drawStroke({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: '#1a1a1a', anchor: 'middle-center', opacity: lab.opacity }, c);
   }
@@ -4514,15 +4578,15 @@ function buildGraphStrokes(rec, parsed, opts = {}) {
   const out = [];
   if (is3DKind(parsed.kind)) {
     const sample = opts.sample || sample3D(parsed, settings, opts.fast ? 30 : SURFACE_N);
-    if (!sample.any && !opts.allowEmpty) throw new Error('no surface in this range — check the equation or ranges');
-    const scene = build3DScene(sample, settings, originX, originY, (screenSpan / vs) * 0.27, px, hexToRgba(color, 0.5));
+    if (!sample.any && !opts.allowEmpty) throw new Error('no surface in this range — zoom out or change the ranges');
+    const scene = build3DScene(sample, settings, originX, originY, (screenSpan / vs) * 0.27, px, color);
     out.push({ kind: 'polys', items: scene.items, graphId: gid });
     for (const lab of scene.labels) {
       out.push({ kind: 'text', x: lab.x, y: lab.y, text: lab.text, size: lab.size, italic: lab.italic, color: ink, anchor: 'middle-center', graphId: gid, opacity: lab.opacity });
     }
   } else {
     const curve = generateEquationStrokes(parsed, settings, originX, originY, screenSpan, vs, gid, color, opts.fast);
-    if (!curve.length && !opts.allowEmpty) throw new Error('no plot data — check the equation');
+    if (!curve.length && !opts.allowEmpty) throw new Error('nothing in view — drag or zoom to find the curve');
     const R2 = graphRanges(settings);
     const { ww, wh } = plotBoxSize(R2.x[0], R2.x[1], R2.y[0], R2.y[1], screenSpan, vs);
     if (settings.showBox) {
@@ -4581,7 +4645,11 @@ document.getElementById('graphPlace').onclick = () => {
 
   let strokes;
   try { strokes = buildGraphStrokes(rec, parsed); }
-  catch (err) { showGraphPreviewError(/^no (plot data|surface)/.test(err.message) ? err.message : 'parse error: ' + err.message); return; }
+  catch (err) {
+    if (/^(nothing in view|no surface)/.test(err.message)) showGraphPreviewNotice(err.message);
+    else showGraphPreviewError('parse error: ' + err.message);
+    return;
+  }
 
   const previousActiveLayerId = state.activeLayerId;
   let layer = old ? state.layers.find(l => l.id === old.layerId) : null;
