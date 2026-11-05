@@ -220,9 +220,9 @@ body { font-family: system-ui, -apple-system, sans-serif; }
             </label>
             <label class="gs-field gs-range">
               <span class="gs-label"><span class="only-2d-inline">y range</span><span class="only-3d-inline">y domain</span></span>
-              <input type="number" id="gs_yMin" value="-6" step="any">
+              <input type="number" id="gs_yMin" value="-10" step="any">
               <span class="gs-sep">to</span>
-              <input type="number" id="gs_yMax" value="6" step="any">
+              <input type="number" id="gs_yMax" value="10" step="any">
             </label>
           </div>
           <div class="gs-row gs-row-ranges only-3d">
@@ -1898,9 +1898,15 @@ function scheduleFullInteractRegen() {
   gi.timer = setTimeout(() => regenInteract(false), 180);
 }
 
+function plotBoxSize(xmin, xmax, ymin, ymax, screenSpan, viewScale) {
+  const W = screenSpan / viewScale;
+  const A = Math.max(1 / 3, Math.min(3, (ymax - ymin) / (xmax - xmin)));
+  return A <= 1 ? { ww: W, wh: W * A } : { ww: W / A, wh: W };
+}
+
 function graphRanges(st) {
   const r = (a, b, da, db) => (b > a ? [a, b] : [da, db]);
-  return { x: r(st.xMin, st.xMax, -10, 10), y: r(st.yMin, st.yMax, -6, 6), z: r(st.zMin, st.zMax, -10, 10) };
+  return { x: r(st.xMin, st.xMax, -10, 10), y: r(st.yMin, st.yMax, -10, 10), z: r(st.zMin, st.zMax, -10, 10) };
 }
 
 function applyInteractDrag(sp) {
@@ -1914,7 +1920,7 @@ function applyInteractDrag(sp) {
     g.settings.elev = Math.max(-89, Math.min(89, (d.settings.elev ?? 20) + dsy * 0.5));
   } else {
     const R = graphRanges(d.settings);
-    const ww = g.screenSpan / g.viewScale, wh = ww * 0.6;
+    const { ww, wh } = plotBoxSize(R.x[0], R.x[1], R.y[0], R.y[1], g.screenSpan, g.viewScale);
     const ux = ww / (R.x[1] - R.x[0]), uy = wh / (R.y[1] - R.y[0]);
     let lx = dsx / state.view.scale, ly = dsy / state.view.scale;
     if (g.rotation) {
@@ -1940,7 +1946,7 @@ function applyInteractZoom(wp, amount) {
       st[k + 'Min'] = c - h; st[k + 'Max'] = c + h;
     }
   } else {
-    const ww = g.screenSpan / g.viewScale, wh = ww * 0.6;
+    const { ww, wh } = plotBoxSize(R.x[0], R.x[1], R.y[0], R.y[1], g.screenSpan, g.viewScale);
     const ux = ww / (R.x[1] - R.x[0]), uy = wh / (R.y[1] - R.y[0]);
     let lx = wp.x - g.originX, ly = wp.y - g.originY;
     if (g.rotation) {
@@ -3153,7 +3159,7 @@ function defaultGraphSettings() {
   return {
     xLabel: 'x', yLabel: 'y', zLabel: 'z',
     xMin: -10, xMax: 10,
-    yMin: -6, yMax: 6,
+    yMin: -10, yMax: 10,
     zMin: -10, zMax: 10,
     showTicks: false,
     showBox: true,
@@ -3173,12 +3179,6 @@ function setGraphMode(is3D) {
   if (is3D === graphMode3D) return;
   graphMode3D = is3D;
   document.querySelector('.graph-modal').classList.toggle('mode-3d', is3D);
-  const yMin = document.getElementById('gs_yMin'), yMax = document.getElementById('gs_yMax');
-  if (is3D && +yMin.value === -6 && +yMax.value === 6) {
-    yMin.value = -10; yMax.value = 10; graphYAutoSet = true;
-  } else if (!is3D && graphYAutoSet && +yMin.value === -10 && +yMax.value === 10) {
-    yMin.value = -6; yMax.value = 6; graphYAutoSet = false;
-  }
   updateFitButtonLabel();
 }
 
@@ -3209,7 +3209,7 @@ function syncGraphModeFromInput() {
 // Mutates and returns the input for chaining; safe to call on a fresh copy of settings.
 function validateGraphRanges(s) {
   if (!(s.xMax > s.xMin)) { s.xMin = -10; s.xMax = 10; }
-  if (!(s.yMax > s.yMin)) { s.yMin = -6; s.yMax = 6; }
+  if (!(s.yMax > s.yMin)) { s.yMin = -10; s.yMax = 10; }
   if (!(s.zMax > s.zMin)) { s.zMin = -10; s.zMax = 10; }
   return s;
 }
@@ -3241,8 +3241,8 @@ function readGraphSettings() {
     zLabel: document.getElementById('gs_zLabel').value,
     xMin: num('gs_xMin', -10),
     xMax: num('gs_xMax', 10),
-    yMin: num('gs_yMin', -6),
-    yMax: num('gs_yMax', 6),
+    yMin: num('gs_yMin', -10),
+    yMax: num('gs_yMax', 10),
     zMin: num('gs_zMin', -10),
     zMax: num('gs_zMax', 10),
     showTicks: document.getElementById('gs_showTicks').checked,
@@ -3258,8 +3258,8 @@ function writeGraphSettings(s) {
   document.getElementById('gs_yLabel').value = s.yLabel ?? 'y';
   document.getElementById('gs_xMin').value = s.xMin ?? -10;
   document.getElementById('gs_xMax').value = s.xMax ?? 10;
-  document.getElementById('gs_yMin').value = s.yMin ?? -6;
-  document.getElementById('gs_yMax').value = s.yMax ?? 6;
+  document.getElementById('gs_yMin').value = s.yMin ?? -10;
+  document.getElementById('gs_yMax').value = s.yMax ?? 10;
   document.getElementById('gs_zLabel').value = s.zLabel ?? 'z';
   document.getElementById('gs_zMin').value = s.zMin ?? -10;
   document.getElementById('gs_zMax').value = s.zMax ?? 10;
@@ -3467,9 +3467,9 @@ document.getElementById('graphPreview_box').addEventListener('wheel', (e) => {
   e.preventDefault();
   const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : def; };
   let xMin = num('gs_xMin', -10), xMax = num('gs_xMax', 10);
-  let yMin = num('gs_yMin', -6), yMax = num('gs_yMax', 6);
+  let yMin = num('gs_yMin', -10), yMax = num('gs_yMax', 10);
   if (!(xMax > xMin)) { xMin = -10; xMax = 10; }
-  if (!(yMax > yMin)) { yMin = -6; yMax = 6; }
+  if (!(yMax > yMin)) { yMin = -10; yMax = 10; }
   // Multiplier: each notch is ~10% zoom. deltaY > 0 = scroll down = zoom out.
   const factor = Math.pow(1.0015, e.deltaY);
   const xc = (xMin + xMax) / 2, halfX = (xMax - xMin) / 2 * factor;
@@ -3514,7 +3514,7 @@ function previewGraph() {
   // Validate ranges; fall back to defaults if user typed nonsense (min ≥ max).
   let { xMin, xMax, yMin, yMax } = settings;
   if (!(xMax > xMin)) { xMin = -10; xMax = 10; }
-  if (!(yMax > yMin)) { yMin = -6; yMax = 6; }
+  if (!(yMax > yMin)) { yMin = -10; yMax = 10; }
 
   if (graphMode3D) {
     let parsed = null;
@@ -3633,6 +3633,12 @@ function baseLayout(settings, xMin, xMax, yMin, yMax) {
     ax.showline = !!settings.showBox;
     ax.mirror = !!settings.showBox;
     ax.linecolor = '#c9c5b8';
+    ax.constrain = 'domain';
+  }
+  const aspect = (yMax - yMin) / (xMax - xMin);
+  if (isFinite(aspect) && aspect > 0) {
+    yAxis.scaleanchor = 'x';
+    yAxis.scaleratio = Math.max(1 / 3, Math.min(3, aspect)) / aspect;
   }
   if (settings.showTicks) {
     // Auto-pick a "nice" step for each axis based on its range, aiming for ~10 ticks across.
@@ -3733,14 +3739,11 @@ function parseEquation(latex) {
 function generateEquationStrokes(parsed, settings, originX, originY, screenSpan, viewScale, graphId, color, fast) {
   let { xMin: xmin, xMax: xmax, yMin: ymin, yMax: ymax } = settings;
   if (!(xmax > xmin)) { xmin = -10; xmax = 10; }
-  if (!(ymax > ymin)) { ymin = -6; ymax = 6; }
+  if (!(ymax > ymin)) { ymin = -10; ymax = 10; }
 
-  // The placed graph always occupies a fixed world-space box: screenSpan wide × 60% tall.
-  // Independent ux/uy scales map each axis's math range into the same world extent regardless
-  // of how wide or narrow the user set it, so changing the range zooms the plot in/out
-  // rather than resizing the graph.
-  const worldWidth = screenSpan / viewScale;
-  const worldHeight = worldWidth * 0.6;
+  // The placed graph's box takes the shape of its ranges (equal x/y units), capped at 3:1,
+  // with its longer side screenSpan wide.
+  const { ww: worldWidth, wh: worldHeight } = plotBoxSize(xmin, xmax, ymin, ymax, screenSpan, viewScale);
   const ux = worldWidth / (xmax - xmin);
   const uy = worldHeight / (ymax - ymin);
   const lineWidth = 2 / viewScale;
@@ -3864,9 +3867,8 @@ function generateEquationStrokes(parsed, settings, originX, originY, screenSpan,
 function buildAxes2DStrokes(settings, originX, originY, screenSpan, viewScale, graphId, color) {
   let { xMin: xmin, xMax: xmax, yMin: ymin, yMax: ymax } = settings;
   if (!(xmax > xmin)) { xmin = -10; xmax = 10; }
-  if (!(ymax > ymin)) { ymin = -6; ymax = 6; }
-  const worldWidth = screenSpan / viewScale;
-  const worldHeight = worldWidth * 0.6;
+  if (!(ymax > ymin)) { ymin = -10; ymax = 10; }
+  const { ww: worldWidth, wh: worldHeight } = plotBoxSize(xmin, xmax, ymin, ymax, screenSpan, viewScale);
   const ux = worldWidth / (xmax - xmin);
   const uy = worldHeight / (ymax - ymin);
   const cxMath = (xmin + xmax) / 2;
@@ -3967,9 +3969,8 @@ function buildAxes2DStrokes(settings, originX, originY, screenSpan, viewScale, g
 function computeTickLabels(settings, originX, originY, screenSpan, viewScale) {
   let { xMin: xmin, xMax: xmax, yMin: ymin, yMax: ymax } = settings;
   if (!(xmax > xmin)) { xmin = -10; xmax = 10; }
-  if (!(ymax > ymin)) { ymin = -6; ymax = 6; }
-  const worldWidth = screenSpan / viewScale;
-  const worldHeight = worldWidth * 0.6;
+  if (!(ymax > ymin)) { ymin = -10; ymax = 10; }
+  const { ww: worldWidth, wh: worldHeight } = plotBoxSize(xmin, xmax, ymin, ymax, screenSpan, viewScale);
   const ux = worldWidth / (xmax - xmin);
   const uy = worldHeight / (ymax - ymin);
   const cxMath = (xmin + xmax) / 2;
@@ -4522,7 +4523,8 @@ function buildGraphStrokes(rec, parsed, opts = {}) {
   } else {
     const curve = generateEquationStrokes(parsed, settings, originX, originY, screenSpan, vs, gid, color, opts.fast);
     if (!curve.length && !opts.allowEmpty) throw new Error('no plot data — check the equation');
-    const ww = screenSpan / vs, wh = ww * 0.6;
+    const R2 = graphRanges(settings);
+    const { ww, wh } = plotBoxSize(R2.x[0], R2.x[1], R2.y[0], R2.y[1], screenSpan, vs);
     if (settings.showBox) {
       const pad = 34 * px;
       const x0 = originX - ww / 2 - pad, y0 = originY - wh / 2 - pad, x1 = originX + ww / 2 + pad, y1 = originY + wh / 2 + pad;
@@ -4537,7 +4539,7 @@ function buildGraphStrokes(rec, parsed, opts = {}) {
     }
     let { xMin: xmin, xMax: xmax, yMin: ymin, yMax: ymax } = settings;
     if (!(xmax > xmin)) { xmin = -10; xmax = 10; }
-    if (!(ymax > ymin)) { ymin = -6; ymax = 6; }
+    if (!(ymax > ymin)) { ymin = -10; ymax = 10; }
     const xAxisY = originY - (axisAnchor(ymin, ymax) - (ymin + ymax) / 2) * (wh / (ymax - ymin));
     const yAxisX = originX + (axisAnchor(xmin, xmax) - (xmin + xmax) / 2) * (ww / (xmax - xmin));
     const xl = (settings.xLabel || '').trim(), yl = (settings.yLabel || '').trim();
@@ -4566,7 +4568,7 @@ document.getElementById('graphPlace').onclick = () => {
   const center = screenToWorld(r.width / 2, r.height / 2);
   const rec = old ? { ...old } : {
     originX: center.x, originY: center.y,
-    screenSpan: Math.min(r.width * 0.7, 720),
+    screenSpan: is3DKind(parsed.kind) ? Math.min(r.width * 0.7, 720) : Math.min(r.width * 0.7, r.height * 0.7, 720),
     viewScale: state.view.scale,
     rotation: 0,
     color: state.penColor,
