@@ -461,6 +461,9 @@ input, textarea, [contenteditable="true"], .embed.editing {
 .layer-name-display .layer-math { font-size: 13px; }
 .layer-name-display .katex { font-size: 1em; color: var(--chrome-text); }
 .layer-name-display .katex-html { white-space: nowrap; }
+.layer-name-display.has-thumb { display: flex; align-items: center; gap: 8px; line-height: 1.8; }
+.layer-name-display.has-thumb .layer-thumb-label { flex: none; }
+.layer-thumb { height: 26px; max-width: 100%; min-width: 0; width: auto; object-fit: contain; display: block; border-radius: 3px; border: 1px solid var(--chrome-line); background: #ffffff; }
 .panel-footer { padding: 12px 16px; border-top: 1px solid var(--chrome-line); display: flex; flex-direction: column; gap: 8px; }
 .hint { font-family: var(--mono); font-size: 10px; color: var(--chrome-text-soft); line-height: 1.7; letter-spacing: 0.02em; }
 input.zoom-readout {
@@ -649,7 +652,7 @@ html, body { overscroll-behavior: none; }
   border-top: 1px solid var(--chrome-line);
   background: var(--chrome-bg-2);
   display: flex; flex-direction: column;
-  height: 360px;
+  height: 240px;
   flex-shrink: 0;
 }
 .history-list {
@@ -941,6 +944,13 @@ function zoomToLayer(layer) {
 }
 
 
+function layerImageSrc(layer) {
+  let img = layer.strokes.find(s => s.kind === 'image');
+  const sel = state.selection;
+  if (!img && sel && sel.layerId === layer.id) img = sel.strokes.find(s => s.kind === 'image');
+  return img ? img.src : null;
+}
+
 function renderLayerList() {
   const list = document.getElementById('layerList');
   list.innerHTML = '';
@@ -999,7 +1009,22 @@ function renderLayerList() {
     display.draggable = false;
     function updateNameDisplay() {
       const m = layer.name.match(/^(Plot:\s*)(.+)$/);
-      if (m && window.renderMathInElement) {
+      const thumbSrc = /^Image:/.test(layer.name) ? layerImageSrc(layer) : null;
+      display.classList.toggle('has-thumb', !!thumbSrc);
+      display.title = thumbSrc ? layer.name : '';
+      if (thumbSrc) {
+        display.textContent = '';
+        const label = document.createElement('span');
+        label.className = 'layer-thumb-label';
+        label.textContent = 'Image:';
+        display.appendChild(label);
+        const img = document.createElement('img');
+        img.className = 'layer-thumb';
+        img.draggable = false;
+        img.alt = layer.name;
+        img.src = thumbSrc;
+        display.appendChild(img);
+      } else if (m && window.renderMathInElement) {
         const tex = normalizeForLatex(m[2]);
         display.innerHTML = escapeHTML(m[1]) + '<span class="layer-math">$' + escapeHTML(tex) + '$</span>';
         try {
@@ -1179,26 +1204,26 @@ function render() {
     strokeCtx.save();
     strokeCtx.scale(state.view.scale, state.view.scale);
     strokeCtx.translate(-state.view.x, -state.view.y);
-    for (const stroke of layer.strokes) drawStroke(stroke, strokeCtx);
-    // The in-progress stroke lives on the active layer — render it inline at the right
-    // z-position so it doesn't float above layers that should be on top of it.
+    const lifted = state.selection && state.selection.lifted && state.selection.layerId === layer.id ? state.selection : null;
+    const order = lifted ? reinsertStrokes(layer.strokes, lifted.strokes, lifted.strokeIdx) : layer.strokes;
+    const liftedSet = lifted ? new Set(lifted.strokes) : null;
+    for (const stroke of order) {
+      if (liftedSet && liftedSet.has(stroke)) {
+        const cx = lifted.bbox.x + lifted.bbox.w / 2, cy = lifted.bbox.y + lifted.bbox.h / 2;
+        const sc = lifted.scale || 1;
+        strokeCtx.save();
+        strokeCtx.translate(cx, cy);
+        strokeCtx.rotate((lifted.rotation || 0) * Math.PI / 180);
+        strokeCtx.scale(sc, sc);
+        strokeCtx.translate(-lifted._origCx, -lifted._origCy);
+        drawStroke(stroke, strokeCtx);
+        strokeCtx.restore();
+      } else {
+        drawStroke(stroke, strokeCtx);
+      }
+    }
     if (state.currentStroke && layer.id === state.activeLayerId) {
       drawStroke(state.currentStroke, strokeCtx);
-    }
-    // Selection ghost (lifted strokes) — draw with this layer if it originated here, so
-    // its eraser strokes are also confined to the layer they belong to.
-    if (state.selection && state.selection.lifted && state.selection.layerId === layer.id) {
-      const sel = state.selection;
-      const cx = sel.bbox.x + sel.bbox.w / 2, cy = sel.bbox.y + sel.bbox.h / 2;
-      const rot = (sel.rotation || 0) * Math.PI / 180;
-      const sc = sel.scale || 1;
-      strokeCtx.save();
-      strokeCtx.translate(cx, cy);
-      strokeCtx.rotate(rot);
-      strokeCtx.scale(sc, sc);
-      strokeCtx.translate(-sel._origCx, -sel._origCy);
-      for (const s of sel.strokes) drawStroke(s, strokeCtx);
-      strokeCtx.restore();
     }
     strokeCtx.restore();
     // Composite this layer onto the main canvas. setTransform(1,...) to draw at raw
@@ -1213,6 +1238,7 @@ function render() {
   }
 
   drawSelectionUI();
+  drawImageHover();
   drawGraphInteractUI();
   drawEraserCursor();
   positionEmbeds();
@@ -1542,6 +1568,11 @@ function canvasPointerDown(e) {
     commitSelection();
   }
 
+  if (state.tool === 'pen' || state.tool === 'select') {
+    const img = imageAtPoint(wp);
+    if (img) { selectImageForMove(img, sp, wp, e); return; }
+  }
+
   if (state.tool === 'select') {
     state.selDrag = { mode: 'creating', startWx: wp.x, startWy: wp.y };
     state.selection = { layerId: state.activeLayerId, bbox: { x: wp.x, y: wp.y, w: 0, h: 0 }, strokes: [], embeds: [], rotation: 0, scale: 1, lifted: false };
@@ -1655,6 +1686,8 @@ canvas.addEventListener('pointermove', (e) => {
     }
     return;
   }
+
+  updateImageHover(wp);
 
   // Hover cursor — change based on what's under the pointer
   if (state.tool === 'select' && state.selection) {
@@ -2116,7 +2149,8 @@ function pointToSegmentDist(px, py, ax, ay, bx, by) {
 
 canvas.addEventListener('pointerleave', () => {
   state.cursor.over = false;
-  if (state.tool === 'eraser') render();
+  if (state.hoverImage) { state.hoverImage = null; canvas.style.cursor = toolCursor(); render(); }
+  else if (state.tool === 'eraser') render();
 });
 canvas.addEventListener('pointerenter', (e) => {
   const sp = eventScreenCoords(e);
@@ -2180,7 +2214,7 @@ function reinsertStrokes(strokes, items, idx) {
   return out;
 }
 
-function liftSelection() {
+function liftSelection(only) {
   const sel = state.selection;
   const layer = state.layers.find(l => l.id === sel.layerId) || activeLayer();
   if (!layer) return;
@@ -2189,13 +2223,15 @@ function liftSelection() {
   const all = layer.strokes;
   const bounds = all.map(strokeBounds);
   const picked = new Set();
-  all.forEach((s, i) => { if (s.mode !== 'eraser' && rectsIntersect(b, bounds[i])) picked.add(i); });
+  all.forEach((s, i) => {
+    if (only ? only.includes(s) : (s.mode !== 'eraser' && rectsIntersect(b, bounds[i]))) picked.add(i);
+  });
   // Pick embeds whose center falls inside the drag rect
   const remEmbeds = [];
   const pickedEmbeds = [];
   for (const em of layer.embeds) {
     const cx = em.x + em.w/2, cy = em.y + em.h/2;
-    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+    if (!only && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
       pickedEmbeds.push(em);
       em.el && em.el.classList.add('selected');
     } else remEmbeds.push(em);
@@ -2249,6 +2285,69 @@ function liftSelection() {
   sel.lifted = true;
   sel._origCx = sel.bbox.x + sel.bbox.w/2;
   sel._origCy = sel.bbox.y + sel.bbox.h/2;
+}
+
+function imageAtPoint(wp) {
+  const layer = activeLayer();
+  if (!layer || !layer.visible) return null;
+  for (let i = layer.strokes.length - 1; i >= 0; i--) {
+    const s = layer.strokes[i];
+    if (s.kind !== 'image') continue;
+    let dx = wp.x - (s.x + s.w / 2), dy = wp.y - (s.y + s.h / 2);
+    if (s.rot) {
+      const a = -s.rot * Math.PI / 180, c = Math.cos(a), n = Math.sin(a);
+      const rx = dx * c - dy * n, ry = dx * n + dy * c;
+      dx = rx; dy = ry;
+    }
+    if (Math.abs(dx) <= s.w / 2 && Math.abs(dy) <= s.h / 2) return s;
+  }
+  return null;
+}
+
+function selectImageForMove(img, sp, wp, e) {
+  const layer = activeLayer();
+  if (state.tool !== 'select') setTool('select');
+  const b = strokeBounds(img);
+  state.selection = { layerId: layer.id, bbox: { x: b.x, y: b.y, w: b.w, h: b.h }, strokes: [], embeds: [], rotation: 0, scale: 1, lifted: false };
+  liftSelection([img]);
+  ensureSelectionOrigin();
+  state.hoverImage = null;
+  state.selDrag = { mode: 'move', startWx: wp.x, startWy: wp.y, startBx: state.selection.bbox.x, startBy: state.selection.bbox.y, startSx: sp.x, startSy: sp.y };
+  canvas.setPointerCapture(e.pointerId);
+  canvas.style.cursor = 'move';
+  render();
+}
+
+function drawImageHover() {
+  const img = state.hoverImage;
+  if (!img || state.selection || !activeLayer().strokes.includes(img)) return;
+  const cx = img.x + img.w / 2, cy = img.y + img.h / 2;
+  const rot = (img.rot || 0) * Math.PI / 180;
+  const cos = Math.cos(rot), sin = Math.sin(rot);
+  const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => {
+    const dx = sx * img.w / 2, dy = sy * img.h / 2;
+    return worldToScreen(cx + dx * cos - dy * sin, cy + dx * sin + dy * cos);
+  });
+  ctx.save();
+  ctx.strokeStyle = '#6b8cce';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < 4; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function updateImageHover(wp) {
+  let img = null;
+  if (!state.selection && (state.tool === 'pen' || state.tool === 'select')) img = imageAtPoint(wp);
+  if (img !== (state.hoverImage || null)) {
+    state.hoverImage = img;
+    canvas.style.cursor = img ? 'grab' : toolCursor();
+    render();
+  }
 }
 
 function pointInSelection(wp) {
