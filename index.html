@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="alternate icon" type="image/png" href="favicon-32.png">
-<link rel="apple-touch-icon" href="favicon-180.png">
 <title>χplot</title>
 <style>
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1c1f25; }
@@ -771,8 +769,47 @@ function serializeStyled(runs) {
   return out;
 }
 
+const DOLLAR_MARK = '\uE010';
+const MATH_CLOSERS = { '$$': '$$', '$': '$', '\\(': '\\)', '\\[': '\\]' };
+
+function findMathEnd(s, from, close) {
+  for (let i = from; i < s.length; i++) {
+    if (s[i] === '\\') { i++; continue; }
+    if (s.startsWith(close, i)) return i;
+  }
+  return -1;
+}
+
+function protectEscapedDollars(s) {
+  let out = '', i = 0;
+  while (i < s.length) {
+    if (s.startsWith('\\$', i)) { out += DOLLAR_MARK; i += 2; continue; }
+    let open = null;
+    for (const o of ['$$', '$', '\\(', '\\[']) if (s.startsWith(o, i)) { open = o; break; }
+    if (open) {
+      const end = findMathEnd(s, i + open.length, MATH_CLOSERS[open]);
+      if (end >= 0) {
+        const stop = end + MATH_CLOSERS[open].length;
+        out += s.slice(i, stop); i = stop; continue;
+      }
+      out += open; i += open.length; continue;
+    }
+    if (s[i] === '\\' && i + 1 < s.length) { out += s.substr(i, 2); i += 2; continue; }
+    out += s[i++];
+  }
+  return out;
+}
+
+function restoreEscapedDollars(el) {
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let n = w.nextNode(); n; n = w.nextNode()) if (n.nodeValue.includes(DOLLAR_MARK)) nodes.push(n);
+  for (const n of nodes) n.nodeValue = n.nodeValue.split(DOLLAR_MARK).join('$');
+}
+
 function textToHTML(text, display) {
   let html = '';
+  if (display) text = protectEscapedDollars(text);
   for (const r of parseStyled(text)) {
     let t = r.t;
     if (display) t = t.replace(/(\\\]|\$\$)\n/g, '$1');
@@ -1424,6 +1461,7 @@ function gestureActive() {
 
 function canvasPointerDown(e) {
   if (gestureActive() && e.pointerId !== state.activePointerId) return;
+  if (gestureActive()) canvasPointerUp(e);
   state.activePointerId = e.pointerId;
   const sp = eventScreenCoords(e);
   const wp = screenToWorld(sp.x, sp.y);
@@ -1542,6 +1580,7 @@ canvas.addEventListener('pointerdown', canvasPointerDown);
 
 canvas.addEventListener('pointermove', (e) => {
   if (gestureActive() && e.pointerId !== state.activePointerId) return;
+  if (gestureActive() && e.buttons === 0) canvasPointerUp(e);
   const sp = eventScreenCoords(e);
   const wp = screenToWorld(sp.x, sp.y);
 
@@ -2819,7 +2858,7 @@ function exitTextEditMode(em, wasNew) {
 }
 
 function renderTextMath(el) {
-  if (!window.renderMathInElement) return;
+  if (!window.renderMathInElement) { restoreEscapedDollars(el); return; }
   try {
     window.renderMathInElement(el, {
       delimiters: [
@@ -2831,11 +2870,13 @@ function renderTextMath(el) {
       throwOnError: false,
     });
   } catch (_) {}
+  restoreEscapedDollars(el);
 }
 
 function fitTextEmbedToContent(em) {
   const el = em.el;
   const size = em.data.size;
+  const oldW = em.w, oldH = em.h;
   let fpx = textFontPx(size, state.view.scale);
   if (fpx < 8) fpx = 16;
   const ls = fpx / size;
@@ -2851,9 +2892,28 @@ function fitTextEmbedToContent(em) {
   }
   el.style.width = (em.w * ls) + 'px';
   el.style.height = 'auto';
-  const hPx = el.getBoundingClientRect().height;
+  const hPx = Math.max(el.getBoundingClientRect().height, el.scrollHeight);
   el.style.transform = prev.t; el.style.width = prev.w; el.style.height = prev.h; el.style.fontSize = prev.f;
   em.h = Math.max(hPx / ls, size * 1.54);
+  if (em.rotation) {
+    const rad = em.rotation * Math.PI / 180;
+    const dw = (em.w - oldW) / 2, dh = (em.h - oldH) / 2;
+    const sx = dw * Math.cos(rad) - dh * Math.sin(rad) - dw;
+    const sy = dw * Math.sin(rad) + dh * Math.cos(rad) - dh;
+    em.x += sx; em.y += sy;
+  }
+  refitWhenFontsReady(em);
+}
+
+function refitWhenFontsReady(em) {
+  if (!document.fonts || document.fonts.status === 'loaded' || em._fontRefit) return;
+  em._fontRefit = true;
+  document.fonts.ready.then(() => {
+    em._fontRefit = false;
+    if (!em.el.isConnected || em._editing) return;
+    fitTextEmbedToContent(em);
+    render();
+  });
 }
 
 function positionEmbeds() {
@@ -2981,22 +3041,27 @@ document.getElementById('imageUploadBtn').addEventListener('click', () => {
 const CLIP_MARK = 'χplot selection';
 let pasteFallbackTimer = null;
 
-function isEditableTarget(t) {
-  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+const TEXT_INPUT_TYPES = ['text', 'search', 'number', 'email', 'url', 'tel', 'password'];
+function isTextField(t) {
+  if (!t) return false;
+  if (t.isContentEditable || t.tagName === 'TEXTAREA') return true;
+  return t.tagName === 'INPUT' && TEXT_INPUT_TYPES.includes((t.type || 'text').toLowerCase());
 }
 
 document.addEventListener('copy', (e) => {
-  if (isEditableTarget(e.target) || !state.selection || !e.clipboardData) return;
+  if (isTextField(e.target) || !state.selection || !e.clipboardData) return;
   copySelection();
   e.clipboardData.setData('text/plain', CLIP_MARK);
   e.preventDefault();
 });
 
 window.addEventListener('paste', (e) => {
-  if (isEditableTarget(e.target)) return;
+  if (e.target.isContentEditable) return;
+  const dt = e.clipboardData;
+  const hasImage = !!dt && [...dt.items].some(i => i.kind === 'file' && i.type.startsWith('image/'));
+  if (isTextField(e.target) && !hasImage) return;
   clearTimeout(pasteFallbackTimer);
   pasteFallbackTimer = null;
-  const dt = e.clipboardData;
   const fromChiplot = !!dt && dt.getData('text/plain') === CLIP_MARK;
   if (dt && !fromChiplot) {
     for (const item of dt.items) {
