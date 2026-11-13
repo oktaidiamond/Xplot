@@ -504,6 +504,11 @@ input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome
 #mainCanvas, .embed-layer { touch-action: none; }
 html, body { overscroll-behavior: none; }
 .embed { position: absolute; pointer-events: auto; cursor: grab; user-select: none; border: 1px dashed transparent; padding: 4px; background: transparent; text-align: center; }
+@font-face {
+  font-family: 'StraightQuotes';
+  src: local('Times New Roman'), local('Times'), local('Liberation Serif'), local('Georgia'), local('DejaVu Serif');
+  unicode-range: U+0022, U+0027;
+}
 .embed.text-embed {
   display: block; text-align: left;
   /* Disable browser font hinting so glyph positions scale linearly with zoom instead of
@@ -783,22 +788,29 @@ function findMathEnd(s, from, close) {
   return -1;
 }
 
-function protectEscapedDollars(s) {
-  let out = '', i = 0;
+function prepareRenderedText(s) {
+  let out = '', i = 0, prev = '';
+  const emit = (str) => { out += str; const t = str.replace(STYLE_MARK_RE, ''); if (t) prev = t[t.length - 1]; };
+  const opensQuote = () => prev === '' || /[\s(\[{\u2014\u2013\u201C\u2018]/.test(prev);
   while (i < s.length) {
-    if (s.startsWith('\\$', i)) { out += DOLLAR_MARK; i += 2; continue; }
+    if (s[i] >= '\uE000' && s[i] <= '\uE005') { out += s[i++]; continue; }
+    if (s.startsWith('\\$', i)) { emit(DOLLAR_MARK); i += 2; continue; }
     let open = null;
     for (const o of ['$$', '$', '\\(', '\\[']) if (s.startsWith(o, i)) { open = o; break; }
     if (open) {
       const end = findMathEnd(s, i + open.length, MATH_CLOSERS[open]);
       if (end >= 0) {
         const stop = end + MATH_CLOSERS[open].length;
-        out += s.slice(i, stop); i = stop; continue;
+        emit(s.slice(i, stop)); i = stop; continue;
       }
-      out += open; i += open.length; continue;
+      emit(open); i += open.length; continue;
     }
-    if (s[i] === '\\' && i + 1 < s.length) { out += s.substr(i, 2); i += 2; continue; }
-    out += s[i++];
+    if (s.startsWith('``', i)) { emit('\u201C'); i += 2; continue; }
+    if (s.startsWith("''", i)) { emit('\u201D'); i += 2; continue; }
+    if (s[i] === '"') { emit(opensQuote() ? '\u201C' : '\u201D'); i++; continue; }
+    if (s[i] === "'") { emit(opensQuote() ? '\u2018' : '\u2019'); i++; continue; }
+    if (s[i] === '\\' && i + 1 < s.length) { emit(s.substr(i, 2)); i += 2; continue; }
+    emit(s[i++]);
   }
   return out;
 }
@@ -812,7 +824,7 @@ function restoreEscapedDollars(el) {
 
 function textToHTML(text, display) {
   let html = '';
-  if (display) text = protectEscapedDollars(text);
+  if (display) text = prepareRenderedText(text);
   for (const r of parseStyled(text)) {
     let t = r.t;
     if (display) t = t.replace(/(\\\]|\$\$)\n/g, '$1');
@@ -2612,7 +2624,7 @@ function createEmbedFromData(type, data, x, y, w, h) {
   el.style.width = w + 'px';
   el.style.height = h + 'px';
   if (type === 'text') {
-    el.style.fontFamily = "'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'CMU Serif', Georgia, serif";
+    el.style.fontFamily = "'StraightQuotes', 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'CMU Serif', Georgia, serif";
     el.style.fontSize = data.size + 'px';
     el.style.color = data.color;
     el.style.lineHeight = '1.3';
