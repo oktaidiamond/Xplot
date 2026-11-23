@@ -932,7 +932,7 @@ function layerWorldBounds(layer) {
   for (const s of layer.strokes) {
     if (s.mode === 'eraser') continue;
     if (!s.kind && (!s.points || !s.points.length)) continue;
-    add(strokeBounds(s), (s.width || 0) / 2);
+    add(strokeBounds(s));
   }
   for (const em of layer.embeds) add(em);
   const sel = state.selection;
@@ -1943,7 +1943,7 @@ function discardDoubleClickTap() {
 
 function cloneStroke(s) {
   if (s.kind === 'shape') {
-    return { kind: 'shape', type: s.type, pts: s.pts.map(q => ({ x: q.x, y: q.y })), color: s.color, width: s.width, fs: s.fs, opts: { ...s.opts } };
+    return { kind: 'shape', type: s.type, pts: s.pts.map(q => ({ x: q.x, y: q.y })), color: s.color, width: s.width, fs: s.fs, opts: { ...s.opts }, names: s.names ? { ...s.names } : undefined };
   }
   if (s.kind === 'image') {
     return { kind: 'image', x: s.x, y: s.y, w: s.w, h: s.h, rot: s.rot || 0, src: s.src, opacity: s.opacity, desmos: s.desmos };
@@ -1989,7 +1989,8 @@ function strokeBounds(s) {
     if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
     if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
   }
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  const pad = (s.width || 0) / 2;
+  return { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad };
 }
 function rectsIntersect(a, b) {
   return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
@@ -2531,7 +2532,7 @@ function placeInlineText(wx, wy) {
 // don't fill the whole canvas. The image is stored as a `kind: 'image'` stroke on its
 // own dedicated layer — drawn into the canvas via the per-layer offscreen render so it
 // behaves correctly with layer order, visibility, and the eraser.
-function placeImageFromBlob(blob, wx, wy) {
+function placeImageFromBlob(blob, wx, wy, into) {
   if (!blob || !blob.type || !blob.type.startsWith('image/')) return;
   const previousActiveLayerId = state.activeLayerId;
   const reader = new FileReader();
@@ -2549,6 +2550,17 @@ function placeImageFromBlob(blob, wx, wy) {
       const scale = Math.min(1, maxWorldW / worldW, maxWorldH / worldH);
       worldW *= scale;
       worldH *= scale;
+      if (into) {
+        commitSelection();
+        const target = drawTarget();
+        if (target) {
+          target.strokes.push({ kind: 'image', x: wx - worldW / 2, y: wy - worldH / 2, w: worldW, h: worldH, src: dataURL });
+          renderLayerList();
+          render();
+          pushHistory('Add image');
+          return;
+        }
+      }
       const baseName = (blob.name || 'Image').replace(/\.[^.]+$/, '');
       const labelTrunc = baseName.length > 32 ? baseName.slice(0, 32) + '…' : baseName;
       const imageLayer = makeLayer(labelTrunc);
@@ -2943,7 +2955,10 @@ _imageFileInput.accept = 'image/*';
 _imageFileInput.multiple = true;
 _imageFileInput.style.display = 'none';
 document.body.appendChild(_imageFileInput);
+let imageInto = false;
 _imageFileInput.addEventListener('change', () => {
+  const into = imageInto;
+  imageInto = false;
   const files = [..._imageFileInput.files];
   _imageFileInput.value = '';  // reset so the same file can be re-picked
   if (!files.length) return;
@@ -2951,10 +2966,11 @@ _imageFileInput.addEventListener('change', () => {
   const center = screenToWorld(r.width/2, r.height/2);
   // Stack multiple images with a small offset so they don't fully overlap
   files.forEach((f, i) => {
-    placeImageFromBlob(f, center.x + i * 20 / state.view.scale, center.y + i * 20 / state.view.scale);
+    placeImageFromBlob(f, center.x + i * 20 / state.view.scale, center.y + i * 20 / state.view.scale, into);
   });
 });
-document.getElementById('imageUploadBtn').addEventListener('click', () => {
+document.getElementById('imageUploadBtn').addEventListener('click', (e) => {
+  imageInto = e.shiftKey;
   _imageFileInput.click();
 });
 
@@ -3045,7 +3061,7 @@ wrap.addEventListener('drop', (e) => {
   const sp = eventScreenCoords(e);
   const wp = screenToWorld(sp.x, sp.y);
   imageFiles.forEach((f, i) => {
-    placeImageFromBlob(f, wp.x + i * 20 / state.view.scale, wp.y + i * 20 / state.view.scale);
+    placeImageFromBlob(f, wp.x + i * 20 / state.view.scale, wp.y + i * 20 / state.view.scale, e.shiftKey);
   });
 });
 
@@ -3232,7 +3248,7 @@ function renderHistoryPanel() {
    TOOLS HOOKUP
    ========================================================================= */
 document.querySelector('.topbar').addEventListener('click', (e) => {
-  if (e.target.closest('#shapesBtn')) { if (shapePopOpen) closeShapePop(); else openShapePop(); return; }
+  if (e.target.closest('#shapesBtn')) { if (shapePopOpen) closeShapePop(); else openShapePop(e.shiftKey); return; }
   const btn = e.target.closest('.tool[data-tool]'); if (!btn) return;
   const t = btn.dataset.tool;
   if ((t === 'pen' || t === 'eraser') && state.tool === t) {
@@ -3249,8 +3265,10 @@ document.querySelector('.topbar').addEventListener('click', (e) => {
   }
   if (toolPopFor && toolPopFor !== t) closeToolPop();
   if (textPopOpen) closeTextPop();
+  if (t === 'graph') graphInto = e.shiftKey;
   setTool(t);
 });
+let graphInto = false;
 
 function setTool(t) {
   if (state.shapeEdit) finishShapeEdit();
@@ -3773,9 +3791,9 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'e') setTool('eraser');
   else if (k === 's') setTool('select');
   else if (k === 't') setTool('text');
-  else if (k === '1') { e.preventDefault(); setTool('graph'); }
-  else if (k === '2') { if (shapePopOpen) closeShapePop(); else openShapePop(); }
-  else if (k === 'i') _imageFileInput.click();
+  else if (k === '1' || e.code === 'Digit1') { e.preventDefault(); graphInto = e.shiftKey; setTool('graph'); }
+  else if (k === '2' || e.code === 'Digit2') { if (shapePopOpen) closeShapePop(); else openShapePop(e.shiftKey); }
+  else if (k === 'i') { imageInto = e.shiftKey; _imageFileInput.click(); }
   else if (k === 'c') { e.preventDefault(); toggleCalc(); }
 });
 
@@ -4067,15 +4085,21 @@ function desmosAtPoint(wp) {
 
 function insertDesmosGraph() {
   commitSelection();
+  const into = graphInto;
+  graphInto = false;
   const r = wrap.getBoundingClientRect();
   const listW = 410;
   const sw = Math.round(Math.max(320, Math.min(900, r.width - listW - 48)));
   const sh = Math.round(Math.max(220, Math.min(sw * 0.66, r.height - 140)));
   const w = sw / state.view.scale, h = sh / state.view.scale;
   const c = screenToWorld(Math.max(sw / 2 + 16, r.width / 2 + listW / 2), r.height / 2 + 20);
-  const layer = makeLayer(DZ_TYPES['2d'].layer);
-  layer.obj = true;
-  state.layers.unshift(layer);
+  let layer;
+  if (into) layer = drawTarget();
+  if (!layer) {
+    layer = makeLayer(DZ_TYPES['2d'].layer);
+    layer.obj = true;
+    state.layers.unshift(layer);
+  }
   const s = { kind: 'image', x: c.x - w / 2, y: c.y - h / 2, w, h, rot: 0, src: dzBlankSrc(sw, sh), desmos: { type: '2d', state: null, bounds: null, playing: false, live: false } };
   layer.strokes.push(s);
   renderLayerList();
@@ -4582,7 +4606,7 @@ function dzFinish(d, result) {
   if (result.removed) {
     if (layer) {
       layer.strokes = layer.strokes.filter(x => x !== s);
-      if (d.isNew && !layer.strokes.length && !layer.embeds.length) {
+      if (d.isNew && layer.obj && !layer.strokes.length && !layer.embeds.length) {
         state.layers = state.layers.filter(l => l !== layer);
         if (state.activeLayerId === layer.id) state.activeLayerId = state.layers.length ? state.layers[state.layers.length - 1].id : null;
       }
@@ -4597,7 +4621,7 @@ function dzFinish(d, result) {
   if (!result.unchanged) {
     if (result.src) { s.src = result.src; delete s._img; }
     s.desmos = { type: d.type, state: result.state, bounds: result.bounds, playing: !!result.playing, live: d.live, px: result.px };
-    if (layer && dzDefaultName(layer.name)) layer.name = DZ_TYPES[d.type].layer;
+    if (layer && layer.obj && dzDefaultName(layer.name)) layer.name = DZ_TYPES[d.type].layer;
   } else if (settingsChanged && s.desmos.state) {
     s.desmos = { ...s.desmos, live: d.live };
   }
@@ -4842,7 +4866,7 @@ function shapeInit(type, c, L) {
   return [P(x, y)];
 }
 
-function insertShape(type) {
+function insertShape(type, into) {
   if (state.selection) commitSelection();
   closeShapePop();
   const r = wrap.getBoundingClientRect();
@@ -4853,6 +4877,16 @@ function insertShape(type) {
     color: state.shapeColor, width: 2 / state.view.scale, fs: 15 / state.view.scale,
     opts: Object.fromEntries(Object.keys(SHAPE_OPT_LABELS).map(k => [k, SHAPE_TYPES[type].def.includes(k)])),
   };
+  if (into) {
+    const target = drawTarget();
+    if (target) {
+      target.strokes.push(s);
+      renderLayerList();
+      pushHistory('Add ' + SHAPE_TYPES[type].label.toLowerCase());
+      openShapeEditor(s);
+      return;
+    }
+  }
   const layer = makeLayer(SHAPE_TYPES[type].label);
   layer.obj = true;
   layer.strokes.push(s);
@@ -5035,6 +5069,10 @@ function shapeGeom(s) {
       break;
     }
   }
+  if (s.names) {
+    g.verts.forEach((v, i) => { if (s.names['v' + i]) v.name = s.names['v' + i]; });
+    g.axisLabels.forEach((v, i) => { if (s.names['a' + i]) v.name = s.names['a' + i]; });
+  }
   return g;
 }
 
@@ -5048,13 +5086,25 @@ function shapeOutlineBounds(s, g) {
   return isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : { x: 0, y: 0, w: 0, h: 0 };
 }
 
+let shapeMeasureCtx = null;
 function shapeBounds(s) {
-  const g = shapeGeom(s), b = shapeOutlineBounds(s, g), o = s.opts || {}, fs = s.fs;
-  const any = o.labels || o.lengths || o.angles || g.axisLabels.length;
-  const pad = any ? fs * 2 : s.width * 3;
-  const statH = o.stats && SHAPE_TYPES[s.type].opts.includes('stats') ? fs * (0.6 + 1.4 * g.stats.length) : 0;
-  const sw = o.stats ? Math.max(0, fs * 7.5 - b.w / 2) : 0;
-  return { x: b.x - pad - sw, y: b.y - pad, w: b.w + 2 * pad + 2 * sw, h: b.h + 2 * pad + statH };
+  const key = JSON.stringify([s.type, s.pts, s.opts, s.fs, s.width, s.names, document.fonts && document.fonts.status]);
+  if (s._bk === key && s._bv) return s._bv;
+  if (!shapeMeasureCtx) shapeMeasureCtx = document.createElement('canvas').getContext('2d');
+  const g = shapeGeom(s), b = shapeOutlineBounds(s, g);
+  const pad = s.width / 2 + 0.5 + (g.arrows.length ? Math.max(s.width * 4.5, s.fs * 0.6) * 0.55 : 0);
+  let x0 = b.x - pad, y0 = b.y - pad, x1 = b.x + b.w + pad, y1 = b.y + b.h + pad;
+  const ext = {};
+  drawShape(shapeMeasureCtx, s, ext);
+  const m = s.fs * 0.14;
+  for (const r of ext.rects) {
+    if (r.x0 - m < x0) x0 = r.x0 - m; if (r.y0 - m < y0) y0 = r.y0 - m;
+    if (r.x1 + m > x1) x1 = r.x1 + m; if (r.y1 + m > y1) y1 = r.y1 + m;
+  }
+  const out = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  s._bk = key;
+  s._bv = out;
+  return out;
 }
 
 function shapeText(c, text, x, y, fs, italic, align, base) {
@@ -5083,7 +5133,7 @@ function segHitsRect(a, b, r) {
   return true;
 }
 
-function drawShape(c, s) {
+function drawShape(c, s, ext) {
   const g = shapeGeom(s), o = s.opts || {}, fs = s.fs, w = s.width, opts = SHAPE_TYPES[s.type].opts;
   const segs = [];
   for (const l of g.solid.concat(g.dashed)) {
@@ -5092,6 +5142,7 @@ function drawShape(c, s) {
   }
   for (const [a, b] of g.arrows) segs.push([a, b]);
   const placed = [];
+  if (ext) ext.rects = placed;
   const place = (text, size, italic, cands) => {
     const tb = textBox(c, text, size, italic), m = w / 2 + fs * 0.12;
     let pick = cands[0];
@@ -5107,7 +5158,7 @@ function drawShape(c, s) {
     shapeText(c, text, pick.x, pick.y, size, italic);
     return rect;
   };
-  const editing = state.shapeEdit && state.shapeEdit.s === s;
+  const editing = !ext && state.shapeEdit && state.shapeEdit.s === s;
   if (editing) s._hits = [];
   const hit = (rect, kind, k, value) => { if (editing) s._hits.push({ rect, kind, k, value }); };
   c.save();
@@ -5204,7 +5255,7 @@ function drawShape(c, s) {
     });
   }
   if (opts.includes('labels') && o.labels) {
-    for (const v of g.verts) {
+    g.verts.forEach((v, vk) => {
       let n = v.dir || vDir(vSub(v.p, v.from), P(0, -1));
       if (v.inside) n = P(0, 1);
       const tb = textBox(c, v.name, fs, true);
@@ -5214,13 +5265,13 @@ function drawShape(c, s) {
         const r = boxExt(tb, d) + fs * 0.35 + w / 2 + extra;
         cands.push(P(v.p.x + d.x * r, v.p.y + d.y * r));
       }
-      place(v.name, fs, true, cands);
-    }
-    for (const v of g.axisLabels) {
+      hit(place(v.name, fs, true, cands), 'name', 'v' + vk, v.name);
+    });
+    g.axisLabels.forEach((v, ak) => {
       const n = vDir(vSub(v.p, v.from));
       const k = boxExt(textBox(c, v.name, fs * 1.05, true), n) + fs * 0.45;
-      place(v.name, fs * 1.05, true, [P(v.p.x + n.x * k, v.p.y + n.y * k)]);
-    }
+      hit(place(v.name, fs * 1.05, true, [P(v.p.x + n.x * k, v.p.y + n.y * k)]), 'name', 'a' + ak, v.name);
+    });
   }
   if (opts.includes('stats') && o.stats && g.stats.length) {
     const b = shapeOutlineBounds(s, g);
@@ -5239,6 +5290,7 @@ function drawShape(c, s) {
       }
     }
     if (!pick) pick = { x: cx0, y: Math.max(b.y + b.h, ...placed.map(z => z.y1)) + fs * 0.7 };
+    placed.push({ x0: pick.x - bw / 2, x1: pick.x + bw / 2, y0: pick.y, y1: pick.y + bh - fs * 0.12 });
     c.save();
     c.globalAlpha *= 0.85;
     let y = pick.y;
@@ -5483,8 +5535,9 @@ function openShapeValueEditor(h) {
   const inp = document.createElement('input');
   inp.className = 'shape-val-input';
   inp.type = 'text';
-  inp.inputMode = 'decimal';
-  inp.value = String(h.value).replace('°', '');
+  const isName = h.kind === 'name';
+  if (isName) inp.maxLength = 8; else inp.inputMode = 'decimal';
+  inp.value = isName ? String(h.value) : String(h.value).replace('°', '');
   const w = Math.max(54, b.x - a.x + 26);
   inp.style.width = w + 'px';
   inp.style.left = (wr.left + (a.x + b.x) / 2 - w / 2) + 'px';
@@ -5505,7 +5558,12 @@ function closeShapeValueEditor(apply) {
   const v = shapeValInput;
   if (!v) return;
   shapeValInput = null;
-  if (apply) {
+  if (apply && v.h.kind === 'name') {
+    const txt = v.inp.value.trim();
+    const names = { ...(v.s.names || {}) };
+    if (txt) names[v.h.k] = txt; else delete names[v.h.k];
+    v.s.names = Object.keys(names).length ? names : undefined;
+  } else if (apply) {
     const num = parseFloat(v.inp.value.replace(',', '.'));
     if (isFinite(num)) {
       if (v.h.kind === 'len') shapeSetLength(v.s, v.h.k, num);
@@ -5556,7 +5614,7 @@ function openShapeEditor(s) {
   done.onclick = () => finishShapeEdit();
   bar.appendChild(done);
   document.body.appendChild(bar);
-  state.shapeEdit = { s, layerId: layer.id, before: JSON.stringify({ p: s.pts, o: s.opts, c: s.color }), drag: null, bar, colorBtn };
+  state.shapeEdit = { s, layerId: layer.id, before: JSON.stringify({ p: s.pts, o: s.opts, c: s.color, n: s.names }), drag: null, bar, colorBtn };
   renderLayerList();
   render();
   requestAnimationFrame(() => bar.classList.add('on'));
@@ -5572,7 +5630,7 @@ function finishShapeEdit() {
   setTimeout(() => se.bar.remove(), 200);
   canvas.style.cursor = toolCursor();
   render();
-  if (JSON.stringify({ p: se.s.pts, o: se.s.opts, c: se.s.color }) !== se.before) pushHistory('Edit ' + SHAPE_TYPES[se.s.type].label.toLowerCase());
+  if (JSON.stringify({ p: se.s.pts, o: se.s.opts, c: se.s.color, n: se.s.names }) !== se.before) pushHistory('Edit ' + SHAPE_TYPES[se.s.type].label.toLowerCase());
 }
 
 function deleteEditedShape() {
@@ -5659,13 +5717,13 @@ function drawShapeEditUI() {
   const se = state.shapeEdit;
   if (!se) return;
   const s = se.s;
-  const b = shapeOutlineBounds(s);
+  const b = shapeBounds(s);
   const a = worldToScreen(b.x, b.y), c2 = worldToScreen(b.x + b.w, b.y + b.h);
   ctx.save();
   ctx.strokeStyle = 'rgba(107,140,206,0.55)';
   ctx.setLineDash([4, 3]);
   ctx.lineWidth = 1;
-  ctx.strokeRect(Math.round(a.x) - 6.5, Math.round(a.y) - 6.5, Math.round(c2.x - a.x) + 13, Math.round(c2.y - a.y) + 13);
+  ctx.strokeRect(Math.round(a.x) - 2.5, Math.round(a.y) - 2.5, Math.round(c2.x - a.x) + 5, Math.round(c2.y - a.y) + 5);
   ctx.setLineDash([]);
   for (const q of s.pts) {
     const h = worldToScreen(q.x, q.y);
@@ -5847,6 +5905,7 @@ function updateSelectIndicator() {
 
 const shapePop = document.getElementById('shapePop');
 let shapePopOpen = false;
+let shapePopInto = false;
 (function () {
   const groups = {};
   for (const [type, t] of Object.entries(SHAPE_TYPES)) (groups[t.group] = groups[t.group] || []).push(type);
@@ -5864,7 +5923,7 @@ let shapePopOpen = false;
       b.dataset.shape = type;
       b.title = SHAPE_TYPES[type].label;
       b.innerHTML = SHAPE_TYPES[type].icon;
-      b.onclick = () => insertShape(type);
+      b.onclick = (e) => insertShape(type, e.shiftKey || shapePopInto);
       grid.appendChild(b);
     }
     shapePop.appendChild(grid);
@@ -5880,7 +5939,8 @@ let shapePopOpen = false;
   window.addEventListener('resize', closeShapePop);
 })();
 
-function openShapePop() {
+function openShapePop(into) {
+  shapePopInto = !!into;
   if (toolPopFor) closeToolPop();
   if (textPopOpen) closeTextPop();
   shapePopOpen = true;
@@ -5893,6 +5953,7 @@ function openShapePop() {
 
 function closeShapePop() {
   shapePopOpen = false;
+  shapePopInto = false;
   shapePop.classList.remove('on');
   document.getElementById('shapesBtn').classList.remove('active');
 }
