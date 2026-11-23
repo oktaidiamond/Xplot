@@ -70,6 +70,11 @@ body { font-family: system-ui, -apple-system, sans-serif; }
           <path d="M12 4v11"/><path d="M7 10.5 12 15.5l5-5"/><path d="M4 17v1.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V17"/>
         </svg>
       </button>
+      <button class="ctrl-btn icon-only" id="copyImgBtn" title="Snapshot">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/>
+        </svg>
+      </button>
       <span class="cluster-divider"></span>
       <button class="ctrl-btn icon-only" id="undoBtn" title="Undo">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -193,8 +198,49 @@ body { font-family: system-ui, -apple-system, sans-serif; }
   </div>
 
   <div class="tool-pop shape-pop" id="shapePop">
-    <div class="tp-colors" id="shapeColors">
-      <input type="color" id="shapeColor" class="tp-custom" value="#ffffff" title="Custom color">
+    <button class="sp-gear" id="shapeGearBtn" type="button" title="Settings"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+  </div>
+  <div class="tool-pop" id="shapeSetPop">
+    <div class="tp-colors" id="shapeSetColors">
+      <input type="color" id="shapeSetColor" class="tp-custom" value="#ffffff" title="Custom color">
+    </div>
+    <div class="tp-size">
+      <span class="tp-lbl">Line</span>
+      <input type="range" id="shapeWidthSlider" class="tp-range" min="0" max="1" step="1" value="0">
+      <span class="tp-val" id="shapeWidthVal">2</span>
+    </div>
+    <div class="tp-size">
+      <span class="tp-lbl">Label</span>
+      <input type="range" id="shapeFsSlider" class="tp-range" min="0" max="1" step="1" value="0">
+      <span class="tp-val" id="shapeFsVal">15</span>
+    </div>
+    <button class="tp-fold" id="shapeOptFold" type="button" aria-expanded="false"><span>Defaults</span><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 L6 7.5 L9 4.5"/></svg></button>
+    <div class="tp-chips" id="shapeOptChips" hidden></div>
+    <div class="tp-actions">
+      <button class="tp-btn" id="shapeSetResetBtn" title="Reset settings" type="button">
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        <span>Reset</span>
+      </button>
+    </div>
+  </div>
+  <div class="tool-pop" id="snapPop">
+    <div class="sp-head">Capture</div>
+    <div class="snap-row" data-key="mode">
+      <button class="snap-lab" type="button" data-side="0">Window</button>
+      <button class="snap-sw" type="button" role="switch" aria-label="Window or Canvas"><i></i><i></i><span></span></button>
+      <button class="snap-lab" type="button" data-side="1">Canvas</button>
+    </div>
+    <div class="sp-head">Action</div>
+    <div class="snap-row" data-key="action">
+      <button class="snap-lab" type="button" data-side="0">Copy</button>
+      <button class="snap-sw" type="button" role="switch" aria-label="Copy or Save"><i></i><i></i><span></span></button>
+      <button class="snap-lab" type="button" data-side="1">Save</button>
+    </div>
+    <div class="tp-actions">
+      <button class="tp-btn" id="snapResetBtn" title="Reset snapshot settings" type="button">
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        <span>Reset</span>
+      </button>
     </div>
   </div>
   <div class="tool-pop color-pop" id="selColorPop">
@@ -349,6 +395,36 @@ input, textarea, [contenteditable="true"], .embed.editing {
 .tp-aa { font-family: 'KaTeX_Main', 'Latin Modern Roman', Georgia, serif; line-height: 1; color: #000; }
 .tool-pop.eraser #tpDot { background: transparent; box-shadow: inset 0 0 0 1px #444; }
 .tp-range { flex: 1; min-width: 0; accent-color: var(--accent); margin: 0; }
+.shape-pop .sp-gear { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--chrome-text-soft); background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
+.shape-pop .sp-gear:hover { color: var(--chrome-text); background: var(--chrome-line); }
+.tp-fold { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 2px 2px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; color: var(--chrome-text-soft); background: none; border: 0; cursor: pointer; }
+.tp-fold:hover { color: var(--chrome-text); }
+.tp-fold svg { transition: transform var(--t-fast) var(--ease); }
+.tp-fold[aria-expanded="true"] svg { transform: rotate(180deg); }
+.tp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: -4px; }
+.tp-chips[hidden] { display: none; }
+.tp-chip { height: 22px; padding: 0 8px; font-family: var(--mono); font-size: 10.5px; color: var(--chrome-text-soft); background: transparent; border: 1px dashed var(--chrome-line-strong); border-radius: 11px; cursor: pointer; }
+.tp-chip:hover { color: var(--chrome-text); }
+.tp-chip.on { color: var(--accent); background: var(--accent-soft); border: 1px solid rgba(107,140,206,0.3); }
+.tp-chip.off { color: var(--chrome-text-soft); text-decoration: line-through; border: 1px solid var(--chrome-line-strong); opacity: 0.7; }
+#snapPop { width: 212px; gap: 8px; }
+#snapPop .sp-head { padding: 0 2px; }
+#snapPop .sp-head:not(:first-child) { margin-top: 2px; }
+.snap-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 2px; }
+.snap-lab { flex: 1; padding: 4px 0; font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--chrome-text-soft); background: none; border: 0; cursor: pointer; transition: color var(--t-fast); }
+.snap-lab[data-side="0"] { text-align: left; }
+.snap-lab[data-side="1"] { text-align: right; }
+.snap-lab:hover { color: var(--chrome-text); }
+.snap-lab.on { color: var(--accent); }
+.snap-sw { flex: none; position: relative; width: 44px; height: 20px; padding: 0; background: none; border: 0; cursor: pointer; }
+.snap-sw::before { content: ''; position: absolute; left: 6px; right: 6px; top: 9px; height: 2px; border-radius: 1px; background: var(--chrome-line-strong); }
+.snap-sw i { position: absolute; top: 6px; width: 8px; height: 8px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--chrome-line-strong); background: var(--chrome-bg); }
+.snap-sw i:first-of-type { left: 2px; }
+.snap-sw i:nth-of-type(2) { right: 2px; }
+.snap-sw span { position: absolute; top: 3px; left: 0; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--chrome-bg); transform: translateX(0); transition: transform var(--t-fast) var(--ease); }
+.snap-sw.right span { transform: translateX(30px); }
+.snap-sw:hover i { border-color: var(--chrome-text-soft); }
+.tp-lbl { flex: none; width: 34px; font-family: var(--mono); font-size: 11px; color: var(--chrome-text-soft); }
 .tp-val { flex: none; width: 26px; text-align: right; font-family: var(--mono); font-size: 11px; color: var(--chrome-text); }
 .tp-actions { display: flex; gap: 6px; }
 .tp-btn { flex: 1; height: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--chrome-text-soft); background: transparent; border: 1px solid var(--chrome-line-strong); border-radius: 5px; cursor: pointer; transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast); }
@@ -424,6 +500,7 @@ input, textarea, [contenteditable="true"], .embed.editing {
   color: var(--chrome-text); border-radius: 5px; cursor: pointer; transition: all var(--t-fast);
 }
 .ctrl-btn:hover { background: var(--chrome-line); border-color: var(--chrome-text-soft); }
+.ctrl-btn.flash-ok { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ctrl-btn.primary { background: var(--accent); color: #0d0e11; border-color: var(--accent); }
 .ctrl-btn.primary:hover { background: #82a0d8; border-color: #82a0d8; }
 .ctrl-btn.full { width: 100%; }
@@ -691,6 +768,7 @@ html, body { overscroll-behavior: none; }
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
 
 
 <script>
@@ -805,6 +883,11 @@ const state = {
   penColor: '#000000',
   textColor: '#000000',
   shapeColor: '#000000',
+  shapeWidth: 2,
+  shapeFs: 15,
+  shapeOpts: {},
+  snapMode: 'app',
+  snapAction: 'copy',
   textSize: 36,
   bgColor: '#ffffff',
   penSize: 6,
@@ -1359,11 +1442,13 @@ function render() {
     }
   }
 
-  drawSelectionUI();
-  drawShapeEditUI();
-  updateSelectIndicator();
-  drawImageHover();
-  drawEraserCursor();
+  if (!state.capturing) {
+    drawSelectionUI();
+    drawShapeEditUI();
+    updateSelectIndicator();
+    drawImageHover();
+    drawEraserCursor();
+  }
   positionEmbeds();
   syncDesmosOverlays();
   // Update the zoom readout unless the user is actively editing it (so their in-progress
@@ -3308,7 +3393,7 @@ function syncPenColorUI() {
   const c = state.penColor.toLowerCase();
   document.getElementById('penDot').style.background = state.penColor;
   let matched = false;
-  for (const b of document.querySelectorAll('.tp-swatch')) {
+  for (const b of toolPop.querySelectorAll('.tp-swatch')) {
     const on = b.dataset.c === c;
     b.classList.toggle('on', on);
     if (on) matched = true;
@@ -3334,6 +3419,7 @@ function syncToolPop() {
 }
 
 function openToolPop(t, btn) {
+  closeShapeSetPop();
   if (textPopOpen) closeTextPop();
   closeSelectColor();
   toolPopFor = t;
@@ -3412,6 +3498,7 @@ function syncTextPop() {
 }
 
 function openTextPop() {
+  closeShapeSetPop();
   if (toolPopFor) closeToolPop();
   closeSelectColor();
   textPopOpen = true;
@@ -3565,6 +3652,9 @@ function doFullReset() {
   state.penColor = '#000000';
   state.textColor = '#000000';
   state.shapeColor = '#000000';
+  state.shapeWidth = 2;
+  state.shapeFs = 15;
+  state.shapeOpts = {};
   state.textSize = 36;
   state.bgColor = '#ffffff';
   state.penSize = 6;
@@ -3581,8 +3671,9 @@ function doFullReset() {
   // Sync UI controls back to defaults
   document.getElementById('penColor').value = '#ffffff';
   document.getElementById('textColor').value = '#ffffff';
-  document.getElementById('shapeColor').value = '#ffffff';
+  document.getElementById('shapeSetColor').value = '#ffffff';
   syncShapeColorUI();
+  syncShapeSetPop();
   syncTextPop();
   syncToolPop();
   document.getElementById('bgColor').value = state.bgColor;
@@ -3894,6 +3985,121 @@ _boardFileInput.addEventListener('change', () => {
 });
 document.getElementById('openBoardBtn').addEventListener('click', () => _boardFileInput.click());
 document.getElementById('saveBoardBtn').addEventListener('click', downloadBoard);
+
+async function viewToPngBlob() {
+  commitSelection();
+  closeSnapPop();
+  state.capturing = true;
+  render();
+  try {
+    const dpr = window.devicePixelRatio || 1;
+    if (state.snapMode === 'app') {
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const de = document.documentElement;
+      const full = await html2canvas(document.body, { backgroundColor: null, scale: dpr, logging: false, useCORS: true, x: 0, y: 0, width: de.clientWidth, height: de.clientHeight, windowWidth: de.clientWidth, windowHeight: de.clientHeight, scrollX: 0, scrollY: 0 });
+      return await new Promise((res, rej) => full.toBlob(b => b ? res(b) : rej(new Error('png')), 'image/png'));
+    }
+    const r = wrap.getBoundingClientRect();
+    const out = document.createElement('canvas');
+    out.width = Math.round(r.width * dpr);
+    out.height = Math.round(r.height * dpr);
+    const oc = out.getContext('2d');
+    oc.drawImage(canvas, 0, 0, out.width, out.height);
+    if (window.html2canvas && embedLayer.children.length) {
+      const top = await html2canvas(embedLayer, { backgroundColor: null, scale: dpr, logging: false, useCORS: true, width: r.width, height: r.height });
+      oc.drawImage(top, 0, 0, out.width, out.height);
+    }
+    return await new Promise((res, rej) => out.toBlob(b => b ? res(b) : rej(new Error('png')), 'image/png'));
+  } finally {
+    state.capturing = false;
+    render();
+  }
+}
+
+function downloadPngBlob(blob) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const now = new Date();
+  a.download = 'chiplot-' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '.png';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function snapshotView() {
+  const btn = document.getElementById('copyImgBtn');
+  const done = ok => {
+    btn.classList.toggle('flash-ok', ok);
+    setTimeout(() => btn.classList.remove('flash-ok'), 500);
+  };
+  if (state.snapAction === 'save') {
+    try { downloadPngBlob(await viewToPngBlob()); done(true); } catch (_) { done(false); }
+    return;
+  }
+  try {
+    const item = new ClipboardItem({ 'image/png': viewToPngBlob() });
+    await navigator.clipboard.write([item]);
+    done(true);
+  } catch (_) {
+    try { downloadPngBlob(await viewToPngBlob()); done(true); } catch (_) { done(false); }
+  }
+}
+
+const snapPop = document.getElementById('snapPop');
+let snapPopOpen = false;
+const SNAP_KEYS = { mode: ['app', 'canvas'], action: ['copy', 'save'] };
+function snapStateKey(k) { return k === 'mode' ? 'snapMode' : 'snapAction'; }
+function syncSnapPop() {
+  for (const row of snapPop.querySelectorAll('.snap-row')) {
+    const k = row.dataset.key;
+    const side = SNAP_KEYS[k].indexOf(state[snapStateKey(k)]);
+    row.querySelector('.snap-sw').classList.toggle('right', side === 1);
+    row.querySelector('.snap-sw').setAttribute('aria-checked', String(side === 1));
+    for (const l of row.querySelectorAll('.snap-lab')) l.classList.toggle('on', +l.dataset.side === side);
+  }
+}
+function openSnapPop() {
+  syncSnapPop();
+  const r = document.getElementById('copyImgBtn').getBoundingClientRect();
+  snapPop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 158)) + 'px';
+  snapPop.style.top = (r.bottom + 8) + 'px';
+  snapPop.classList.add('on');
+  snapPopOpen = true;
+}
+function closeSnapPop() {
+  snapPop.classList.remove('on');
+  snapPopOpen = false;
+}
+document.getElementById('copyImgBtn').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (snapPopOpen) closeSnapPop(); else openSnapPop();
+});
+for (const row of snapPop.querySelectorAll('.snap-row')) {
+  const k = row.dataset.key, sk = snapStateKey(k);
+  row.querySelector('.snap-sw').addEventListener('click', () => {
+    state[sk] = SNAP_KEYS[k][SNAP_KEYS[k].indexOf(state[sk]) ? 0 : 1];
+    syncSnapPop();
+  });
+  for (const l of row.querySelectorAll('.snap-lab')) {
+    l.addEventListener('click', () => { state[sk] = SNAP_KEYS[k][+l.dataset.side]; syncSnapPop(); });
+  }
+}
+document.getElementById('snapResetBtn').addEventListener('click', () => {
+  state.snapMode = 'app';
+  state.snapAction = 'copy';
+  syncSnapPop();
+});
+document.addEventListener('pointerdown', (e) => {
+  if (!snapPopOpen) return;
+  if (snapPop.contains(e.target) || e.target.closest('#copyImgBtn')) return;
+  closeSnapPop();
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (snapPopOpen && e.key === 'Escape') { closeSnapPop(); e.stopPropagation(); }
+}, true);
+window.addEventListener('resize', closeSnapPop);
+document.getElementById('copyImgBtn').addEventListener('click', snapshotView);
 
 /* =========================================================================
    DESMOS GRAPHS
@@ -4874,8 +5080,8 @@ function insertShape(type, into) {
   const L = Math.min(320, r.width * 0.4, r.height * 0.5) / state.view.scale;
   const s = {
     kind: 'shape', type, pts: shapeInit(type, c, L),
-    color: state.shapeColor, width: 2 / state.view.scale, fs: 15 / state.view.scale,
-    opts: Object.fromEntries(Object.keys(SHAPE_OPT_LABELS).map(k => [k, SHAPE_TYPES[type].def.includes(k)])),
+    color: state.shapeColor, width: state.shapeWidth / state.view.scale, fs: state.shapeFs / state.view.scale,
+    opts: Object.fromEntries(Object.keys(SHAPE_OPT_LABELS).map(k => [k, SHAPE_TYPES[type].opts.includes(k) && k in state.shapeOpts ? state.shapeOpts[k] : SHAPE_TYPES[type].def.includes(k)])),
   };
   if (into) {
     const target = drawTarget();
@@ -5794,11 +6000,11 @@ function syncSwatches(wrapEl, custom, color) {
 
 function syncShapeColorUI() {
   document.getElementById('shapeDot').style.background = state.shapeColor;
-  syncSwatches(document.getElementById('shapeColors'), document.getElementById('shapeColor'), state.shapeColor);
+  syncSwatches(document.getElementById('shapeSetColors'), document.getElementById('shapeSetColor'), state.shapeColor);
 }
 
 const shapeEditColorPop = document.getElementById('shapeEditColorPop');
-buildSwatches(document.getElementById('shapeColors'), document.getElementById('shapeColor'), (c) => { state.shapeColor = c; syncShapeColorUI(); });
+buildSwatches(document.getElementById('shapeSetColors'), document.getElementById('shapeSetColor'), (c) => { state.shapeColor = c; syncShapeColorUI(); });
 buildSwatches(document.getElementById('shapeEditColors'), document.getElementById('shapeEditColor'), (c) => {
   const se = state.shapeEdit;
   if (!se) return;
@@ -5940,6 +6146,7 @@ let shapePopInto = false;
 })();
 
 function openShapePop(into) {
+  closeShapeSetPop();
   shapePopInto = !!into;
   if (toolPopFor) closeToolPop();
   if (textPopOpen) closeTextPop();
@@ -5950,6 +6157,106 @@ function openShapePop(into) {
   shapePop.classList.add('on');
   document.getElementById('shapesBtn').classList.add('active');
 }
+
+const SHAPE_WIDTH_STEPS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12];
+const SHAPE_FS_STEPS = [8, 10, 12, 14, 15, 16, 18, 20, 24, 28, 32, 40];
+const shapeSetPop = document.getElementById('shapeSetPop');
+let shapeSetOpen = false;
+
+function stepIndex(steps, v) {
+  let best = 0;
+  for (let i = 1; i < steps.length; i++) if (Math.abs(steps[i] - v) < Math.abs(steps[best] - v)) best = i;
+  return best;
+}
+
+function syncShapeSetPop() {
+  const w = document.getElementById('shapeWidthSlider'), f = document.getElementById('shapeFsSlider');
+  w.max = SHAPE_WIDTH_STEPS.length - 1; w.value = stepIndex(SHAPE_WIDTH_STEPS, state.shapeWidth);
+  f.max = SHAPE_FS_STEPS.length - 1; f.value = stepIndex(SHAPE_FS_STEPS, state.shapeFs);
+  for (const b of document.querySelectorAll('#shapeOptChips .tp-chip')) {
+    const v = state.shapeOpts[b.dataset.k];
+    b.classList.toggle('on', v === true);
+    b.classList.toggle('off', v === false);
+  }
+  document.getElementById('shapeWidthVal').textContent = state.shapeWidth;
+  document.getElementById('shapeFsVal').textContent = state.shapeFs;
+}
+
+function openShapeSetPop() {
+  if (shapePopOpen) closeShapePop();
+  if (toolPopFor) closeToolPop();
+  if (textPopOpen) closeTextPop();
+  closeSelectColor();
+  syncShapeColorUI();
+  syncShapeSetPop();
+  shapeSetOpen = true;
+  const r = document.getElementById('shapesBtn').getBoundingClientRect();
+  shapeSetPop.style.left = Math.max(8, r.left) + 'px';
+  shapeSetPop.style.top = (r.bottom + 8) + 'px';
+  shapeSetPop.classList.add('on');
+}
+
+function closeShapeSetPop() {
+  shapeSetOpen = false;
+  shapeSetPop.classList.remove('on');
+}
+
+(function () {
+  const btn = document.getElementById('shapesBtn');
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (shapeSetOpen) closeShapeSetPop(); else openShapeSetPop();
+  });
+  document.getElementById('shapeGearBtn').addEventListener('click', openShapeSetPop);
+  document.getElementById('shapeWidthSlider').addEventListener('input', (e) => {
+    state.shapeWidth = SHAPE_WIDTH_STEPS[+e.target.value];
+    syncShapeSetPop();
+  });
+  document.getElementById('shapeFsSlider').addEventListener('input', (e) => {
+    state.shapeFs = SHAPE_FS_STEPS[+e.target.value];
+    syncShapeSetPop();
+  });
+  const chips = document.getElementById('shapeOptChips');
+  for (const [k, label] of Object.entries(SHAPE_OPT_LABELS)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tp-chip';
+    b.dataset.k = k;
+    b.textContent = label;
+    b.title = 'Click to cycle: usual / on / off';
+    b.addEventListener('click', () => {
+      const v = state.shapeOpts[k];
+      if (v === undefined) state.shapeOpts[k] = true;
+      else if (v === true) state.shapeOpts[k] = false;
+      else delete state.shapeOpts[k];
+      syncShapeSetPop();
+    });
+    chips.appendChild(b);
+  }
+  const fold = document.getElementById('shapeOptFold');
+  fold.addEventListener('click', () => {
+    const open = chips.hidden;
+    chips.hidden = !open;
+    fold.setAttribute('aria-expanded', String(open));
+  });
+  document.getElementById('shapeSetResetBtn').addEventListener('click', () => {
+    state.shapeOpts = {};
+    state.shapeColor = '#000000';
+    state.shapeWidth = 2;
+    state.shapeFs = 15;
+    syncShapeColorUI();
+    syncShapeSetPop();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!shapeSetOpen) return;
+    if (shapeSetPop.contains(e.target) || e.target.closest('#shapesBtn')) return;
+    closeShapeSetPop();
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (shapeSetOpen && e.key === 'Escape') { closeShapeSetPop(); e.stopPropagation(); }
+  }, true);
+  window.addEventListener('resize', closeShapeSetPop);
+})();
 
 function closeShapePop() {
   shapePopOpen = false;
