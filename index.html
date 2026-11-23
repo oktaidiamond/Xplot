@@ -94,7 +94,10 @@ body { font-family: system-ui, -apple-system, sans-serif; }
       <div class="side-resizer" id="sideResizer"></div>
       <div class="panel-header">
         <span class="panel-title">Layers</span>
-        <button class="icon-btn" id="addLayerBtn" title="Add layer">+</button>
+        <div class="panel-actions">
+          <button class="icon-btn" id="flattenBtn" title="Merge all layers"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.5 V5.5 M5.5 4 L8 6.5 L10.5 4 M8 14.5 V10.5 M5.5 12 L8 9.5 L10.5 12 M2.5 8 H13.5" stroke-linecap="round"/></svg></button>
+          <button class="icon-btn" id="addLayerBtn" title="Add layer">+</button>
+        </div>
       </div>
       <div class="layer-list" id="layerList"></div>
 
@@ -479,11 +482,18 @@ input, textarea, [contenteditable="true"], .embed.editing {
 .layer-del { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 3px; color: var(--chrome-text-soft); cursor: pointer; opacity: 0; transition: opacity var(--t-fast), color var(--t-fast), background var(--t-fast); }
 .layer-row:hover .layer-del { opacity: 1; }
 .layer-locate { position: absolute; right: 26px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 3px; color: var(--chrome-text-soft); cursor: pointer; opacity: 0; transition: opacity var(--t-fast), color var(--t-fast), background var(--t-fast); }
+.layer-merge { position: absolute; right: 46px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 3px; color: var(--chrome-text-soft); cursor: pointer; opacity: 0; transition: opacity var(--t-fast), color var(--t-fast), background var(--t-fast); }
+.layer-row:hover .layer-merge { opacity: 1; }
+.layer-merge:hover { color: var(--chrome-text); background: var(--chrome-line); }
+.layer-row:not(.has-locate) .layer-merge { right: 26px; }
+.layer-locate, .layer-del { z-index: 1; }
+.panel-actions { display: flex; align-items: center; gap: 6px; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 .layer-row:hover .layer-locate { opacity: 1; }
 .layer-locate:hover { color: var(--chrome-text); background: var(--chrome-line); }
 .layer-row.has-locate .layer-name-display { padding-right: 4px; }
-.layer-row:hover .layer-locate, .layer-row:hover .layer-del { background: var(--chrome-line); box-shadow: 0 0 0 6px var(--chrome-line); }
-.layer-row.active:hover .layer-locate, .layer-row.active:hover .layer-del { background: var(--accent-soft); box-shadow: 0 0 0 6px var(--accent-soft); }
+.layer-row:hover .layer-locate, .layer-row:hover .layer-del, .layer-row:hover .layer-merge { background: var(--chrome-line); box-shadow: 0 0 0 6px var(--chrome-line); }
+.layer-row.active:hover .layer-locate, .layer-row.active:hover .layer-del, .layer-row.active:hover .layer-merge { background: var(--accent-soft); box-shadow: 0 0 0 6px var(--accent-soft); }
 .ui-tip { position: fixed; left: 0; top: 0; z-index: 3000; pointer-events: none; background: #0d0e11; color: var(--chrome-text); border: 1px solid var(--chrome-line-strong); border-radius: 4px; padding: 4px 7px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; white-space: nowrap; box-shadow: var(--shadow); opacity: 0; transform: translateY(-2px); transition: opacity var(--t-fast), transform var(--t-fast); }
 .ui-tip.show { opacity: 1; transform: translateY(0); }
 .layer-del:hover { color: var(--warn); background: rgba(166,74,58,0.12); }
@@ -514,7 +524,7 @@ input.zoom-readout {
 input.zoom-readout:hover { background: var(--chrome-bg-2); }
 input.zoom-readout:focus { border-color: var(--accent); background: var(--chrome-bg-2); }
 
-.canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #0e1014; }
+.canvas-wrap { flex: 1; position: relative; overflow: hidden; overflow: clip; background: #0e1014; }
 .canvas-view-toolbar {
   position: absolute;
   top: 12px;
@@ -899,8 +909,8 @@ function objectImage(l) {
 }
 
 function selectObjectLayer(l, keepList) {
-  const img = objectImage(l);
   if (state.selection) commitSelection();
+  const img = objectImage(l);
   state.activeLayerId = l.id;
   if (state.tool !== 'select') setTool('select');
   if (!img || !l.visible) { if (!keepList) renderLayerList(); render(); return; }
@@ -944,6 +954,7 @@ function zoomToLayer(layer) {
 
 
 function layerImageStroke(layer) {
+  if (!layer.obj) return null;
   let img = layer.strokes.find(s => s.kind === 'image');
   const sel = state.selection;
   if (!img && sel && sel.layerId === layer.id) img = sel.strokes.find(s => s.kind === 'image');
@@ -1096,7 +1107,7 @@ function renderLayerList() {
     };
     row.appendChild(display);
 
-    {
+    if (layer.obj) {
       const loc = document.createElement('button');
       loc.className = 'layer-locate';
       loc.title = 'Zoom to layer';
@@ -1106,6 +1117,17 @@ function renderLayerList() {
       loc.onmousedown = (e) => e.stopPropagation();
       row.appendChild(loc);
       row.classList.add('has-locate');
+    }
+
+    if (state.layers.indexOf(layer) > 0) {
+      const mg = document.createElement('button');
+      mg.className = 'layer-merge';
+      mg.title = 'Merge down';
+      mg.draggable = false;
+      mg.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 V10 M4.5 6.5 L8 10 L11.5 6.5 M3 13.5 H13"/></svg>';
+      mg.onclick = (e) => { e.stopPropagation(); mergeLayerWithNeighbor(layer); };
+      mg.onmousedown = (e) => e.stopPropagation();
+      row.appendChild(mg);
     }
 
     // Delete button — hidden by default, fades in on row hover
@@ -1205,6 +1227,71 @@ function moveLayer(srcId, targetId, above) {
   render();
   pushHistory('Reorder layers');
 }
+
+function autoLayerName() {
+  let n = 0;
+  for (const l of state.layers) { const m = /^Layer (\d+)$/.exec(l.name); if (m) n = Math.max(n, +m[1]); }
+  return 'Layer ' + (n + 1);
+}
+
+function bakeLayerStrokes(layer) {
+  const ink = layer.strokes.filter(s => s.mode !== 'eraser');
+  if (!ink.length) { layer.strokes = []; return; }
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, pad = 2;
+  for (const s of ink) {
+    const b = strokeBounds(s);
+    if (b.x < x0) x0 = b.x; if (b.y < y0) y0 = b.y;
+    if (b.x + b.w > x1) x1 = b.x + b.w; if (b.y + b.h > y1) y1 = b.y + b.h;
+    if (s.width) pad = Math.max(pad, s.width / 2 + 2);
+  }
+  x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  const w = x1 - x0, h = y1 - y0;
+  const k = Math.min(Math.max(state.view.scale, 1) * (window.devicePixelRatio || 1), 4096 / Math.max(w, h));
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.ceil(w * k));
+  cv.height = Math.max(1, Math.ceil(h * k));
+  const c = cv.getContext('2d');
+  c.scale(k, k);
+  c.translate(-x0, -y0);
+  for (const s of layer.strokes) drawStroke(s, c);
+  layer.strokes = [{ kind: 'image', x: x0, y: y0, w, h, rot: 0, src: cv.toDataURL('image/png') }];
+}
+
+function mergeLayerPair(lower, upper) {
+  if (upper.strokes.some(s => s.mode === 'eraser') && lower.strokes.some(s => s.mode !== 'eraser')) bakeLayerStrokes(upper);
+  const target = lower.obj && !upper.obj ? upper : lower;
+  const other = target === upper ? lower : upper;
+  const bothObj = !!(lower.obj && upper.obj);
+  target.strokes = lower.strokes.concat(upper.strokes);
+  target.embeds = lower.embeds.concat(upper.embeds);
+  target.obj = false;
+  delete target._auto;
+  state.layers.splice(state.layers.indexOf(other), 1);
+  if (bothObj) target.name = autoLayerName();
+  return target;
+}
+
+function mergeLayerWithNeighbor(layer) {
+  commitSelection();
+  const i = state.layers.indexOf(layer);
+  if (i < 1) return;
+  const target = mergeLayerPair(state.layers[i - 1], layer);
+  state.activeLayerId = target.id;
+  renderLayerList(); render();
+  pushHistory('Merge layers');
+}
+
+function flattenAllLayers() {
+  commitSelection();
+  if (state.layers.length < 2) return;
+  let target = state.layers[0];
+  while (state.layers.length > 1) target = mergeLayerPair(state.layers[0], state.layers[1]);
+  state.activeLayerId = target.id;
+  renderLayerList(); render();
+  pushHistory('Merge all layers');
+}
+
+document.getElementById('flattenBtn').onclick = flattenAllLayers;
 
 document.getElementById('addLayerBtn').onclick = () => {
   const l = makeLayer();
@@ -1917,6 +2004,20 @@ function reinsertStrokes(strokes, items, idx) {
   return out;
 }
 
+function selectAllInLayer() {
+  commitSelection();
+  const layer = activeLayer();
+  if (!layer) return;
+  if (state.tool !== 'select') setTool('select');
+  const vr = wrap.getBoundingClientRect();
+  const p0 = screenToWorld(0, 0), p1 = screenToWorld(vr.width, vr.height);
+  state.selection = { layerId: layer.id, bbox: { x: Math.min(p0.x, p1.x), y: Math.min(p0.y, p1.y), w: Math.abs(p1.x - p0.x), h: Math.abs(p1.y - p0.y) }, strokes: [], embeds: [], rotation: 0, scale: 1, lifted: false };
+  liftSelection();
+  ensureSelectionOrigin();
+  if (!state.selection.strokes.length && !state.selection.embeds.length) cancelSelection();
+  render();
+}
+
 function liftSelection(only, onlyEmbeds) {
   const sel = state.selection;
   const layer = state.layers.find(l => l.id === sel.layerId) || activeLayer();
@@ -1933,8 +2034,7 @@ function liftSelection(only, onlyEmbeds) {
   const remEmbeds = [];
   const pickedEmbeds = [];
   for (const em of layer.embeds) {
-    const cx = em.x + em.w/2, cy = em.y + em.h/2;
-    if (only ? (onlyEmbeds || []).includes(em) : (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h)) {
+    if (only ? (onlyEmbeds || []).includes(em) : rectsIntersect(b, { x: em.x, y: em.y, w: em.w, h: em.h })) {
       pickedEmbeds.push(em);
       em.el && em.el.classList.add('selected');
     } else remEmbeds.push(em);
@@ -2474,6 +2574,7 @@ function placeImageFromBlob(blob, wx, wy) {
 function enterTextEditMode(em, isNew) {
   if (em._editing) return;
   em._editing = true;
+  em._newEdit = !!isNew;
   em._editStartText = em.data.text || '';  // capture for change-detection on exit
   // Switch to text tool universally on entering edit mode — the toolbar reflects what
   // the user is doing (typing), and exitTextEditMode switches back to pen on commit.
@@ -2617,6 +2718,7 @@ function readRawSourceFromEl(root) {
 
 function exitTextEditMode(em, wasNew) {
   em._editing = false;
+  em._newEdit = false;
   em.el.classList.remove('editing');
   em.el.contentEditable = 'false';
   em.el.style.cursor = 'grab';
@@ -2690,7 +2792,22 @@ function fitTextEmbedToContent(em) {
     el.style.height = 'auto';
     el.style.width = 'max-content';
     const natPx = el.getBoundingClientRect().width;
-    const maxW = em.data.maxW || em.w;
+    let maxW = em.data.maxW || em.w;
+    if (em._editing) {
+      const wr = wrap.getBoundingClientRect();
+      const edge = screenToWorld(wr.width - 12, 0).x;
+      if (em._newEdit && !em.rotation) {
+        const lo = screenToWorld(4, 4);
+        if (em.x < lo.x) em.x = lo.x;
+        if (em.y < lo.y) em.y = lo.y;
+        if (edge - em.x < size * 4) em.x = edge - size * 4;
+      }
+      const room = Math.max(size * 4, edge - em.x);
+      if (room < maxW && (em._newEdit || edge - em.x >= size * 4)) {
+        maxW = room;
+        if (em._newEdit) em.data.maxW = room;
+      }
+    }
     em.w = Math.min(maxW, Math.max(size * 1.5, natPx * 1.02 / ls + size * 0.08));
   }
   el.style.width = (em.w * ls) + 'px';
@@ -2841,6 +2958,23 @@ document.getElementById('imageUploadBtn').addEventListener('click', () => {
   _imageFileInput.click();
 });
 
+function placePastedText(text) {
+  commitSelection();
+  const layer = drawTarget(); if (!layer) return;
+  const r = wrap.getBoundingClientRect();
+  const sc = state.view.scale;
+  const size = state.textSize / sc;
+  const maxW = Math.min(TEXT_BOX_DEFAULT_W, r.width * 0.7) / sc;
+  const data = { text, size, color: state.textColor, autoW: true, maxW };
+  const em = createEmbedFromData('text', data, 0, 0, maxW, 1.54 * size);
+  const c = screenToWorld(r.width / 2, r.height / 2);
+  em.x = c.x - em.w / 2;
+  em.y = c.y - em.h / 2;
+  layer.embeds.push(em);
+  render();
+  pushHistory('Paste text');
+}
+
 const CLIP_MARK = 'χplot selection';
 let pasteFallbackTimer = null;
 
@@ -2877,6 +3011,12 @@ window.addEventListener('paste', (e) => {
         placeImageFromBlob(blob, center.x, center.y);
         return;
       }
+    }
+    const pasted = (dt.getData('text/plain') || '').replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+    if (pasted.trim() && !isTextField(e.target)) {
+      e.preventDefault();
+      placePastedText(pasted);
+      return;
     }
   }
   if (state.clipboard && (fromChiplot || !dt)) { e.preventDefault(); pasteClipboard(); }
@@ -3600,6 +3740,12 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); redo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'a') {
+    if (e.target.isContentEditable) return;
+    e.preventDefault();
+    selectAllInLayer();
+    return;
+  }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
     if (e.target.isContentEditable || !state.selection) return;
     copySelection();
