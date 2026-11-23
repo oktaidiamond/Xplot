@@ -137,6 +137,9 @@ body { font-family: system-ui, -apple-system, sans-serif; }
         <label class="ctrl-btn icon-only paper-btn" title="Paper color">
           <input type="color" id="bgColor" value="#ffffff">
         </label>
+        <button class="ctrl-btn icon-only" id="calcBtn" title="Calculator">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7 H16 M8.5 12 H9.5 M11.5 12 H12.5 M14.5 12 H15.5 M8.5 16 H9.5 M11.5 16 H12.5 M14.5 16 H15.5"/></svg>
+        </button>
         <button class="ctrl-btn icon-only" id="resetViewBtn" title="Reset view">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 12 L12 3 L21 12"/>
@@ -200,6 +203,21 @@ body { font-family: system-ui, -apple-system, sans-serif; }
     <div class="tp-colors" id="shapeEditColors">
       <input type="color" id="shapeEditColor" class="tp-custom" value="#ffffff" title="Custom color">
     </div>
+  </div>
+
+  <div class="calc-panel" id="calcPanel">
+    <div class="calc-head" id="calcHead">
+      <span class="calc-title">Calculator</span>
+      <span class="calc-grip-wrap"><svg class="calc-grip" viewBox="0 0 22 10" width="22" height="10" aria-hidden="true"><circle cx="3" cy="2.5" r="1.5" fill="currentColor"/><circle cx="11" cy="2.5" r="1.5" fill="currentColor"/><circle cx="19" cy="2.5" r="1.5" fill="currentColor"/><circle cx="3" cy="7.5" r="1.5" fill="currentColor"/><circle cx="11" cy="7.5" r="1.5" fill="currentColor"/><circle cx="19" cy="7.5" r="1.5" fill="currentColor"/></svg></span>
+      <span class="calc-head-btns">
+      <button class="calc-close" id="calcClose" type="button" title="Close">
+        <svg viewBox="0 0 14 14" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="3" y1="3" x2="11" y2="11"/><line x1="11" y1="3" x2="3" y2="11"/></svg>
+      </button>
+      </span>
+    </div>
+    <div class="calc-host" id="calcHost"></div>
+    <div class="calc-rz n" data-d="n"></div><div class="calc-rz s" data-d="s"></div><div class="calc-rz e" data-d="e"></div><div class="calc-rz w" data-d="w"></div>
+    <div class="calc-rz nw" data-d="nw"></div><div class="calc-rz ne" data-d="ne"></div><div class="calc-rz sw" data-d="sw"></div><div class="calc-rz se" data-d="se"></div>
   </div>
 
   <!-- Confirm modal -->
@@ -351,6 +369,28 @@ input, textarea, [contenteditable="true"], .embed.editing {
 .layer-name-display.has-icon { display: flex; align-items: center; gap: 8px; }
 .layer-kind-icon svg { width: 14px; height: 14px; display: block; }
 .layer-name-display.has-icon .layer-plain-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.calc-panel { position: fixed; z-index: 102; width: 340px; height: 400px; min-width: 240px; min-height: 180px; display: flex; flex-direction: column; background: var(--chrome-bg); border: 1px solid var(--chrome-line-strong); border-radius: 8px; box-shadow: var(--shadow); overflow: visible; opacity: 0; transform: translateY(-4px); pointer-events: none; visibility: hidden; transition: opacity var(--t-med) ease, transform var(--t-med) var(--ease), visibility 0s linear var(--t-med); }
+.calc-panel.on { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition: opacity var(--t-med) ease, transform var(--t-med) var(--ease); }
+.calc-head { position: relative; flex: none; height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px 0 12px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--chrome-text-soft); border-bottom: 1px solid var(--chrome-line); cursor: grab; user-select: none; }
+.calc-head:active { cursor: grabbing; }
+.calc-head-btns { display: inline-flex; gap: 2px; }
+.calc-title { display: inline-flex; align-items: center; }
+.calc-grip-wrap { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: inline-flex; padding: 6px 12px; border-radius: 5px; transition: background var(--t-fast); }
+.calc-grip-wrap:hover { background: var(--chrome-line); }
+.calc-grip { color: var(--chrome-text-soft); opacity: 0.85; transition: opacity var(--t-fast); }
+.calc-head:hover .calc-grip { opacity: 1; }
+.calc-close { width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 4px; color: var(--chrome-text-soft); cursor: pointer; transition: background var(--t-fast), color var(--t-fast); }
+.calc-close:hover { background: var(--chrome-line); color: var(--chrome-text); }
+.calc-host { flex: 1; min-height: 0; position: relative; background: #fff; overflow: hidden; border-radius: 0 0 8px 8px; }
+.calc-rz { position: absolute; z-index: 2; }
+.calc-rz.n, .calc-rz.s { left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.calc-rz.e, .calc-rz.w { top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.calc-rz.n { top: -4px; } .calc-rz.s { bottom: -4px; } .calc-rz.e { right: -4px; } .calc-rz.w { left: -4px; }
+.calc-rz.ne, .calc-rz.nw, .calc-rz.se, .calc-rz.sw { width: 14px; height: 14px; }
+.calc-rz.nw { top: -5px; left: -5px; cursor: nwse-resize; } .calc-rz.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.calc-rz.ne { top: -5px; right: -5px; cursor: nesw-resize; } .calc-rz.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.calc-host .dz-msg { color: #666; }
 
 .dz-backdrop { position: fixed; inset: 0; z-index: 1500; background: var(--backdrop); backdrop-filter: blur(3px); opacity: 0; transition: opacity var(--t-med) ease; }
 .dz-backdrop.on { opacity: 1; }
@@ -3353,6 +3393,7 @@ function doFullReset() {
 
   // Reset core data state
   if (state.shapeEdit) { state.shapeEdit.bar.remove(); state.shapeEdit = null; document.getElementById('shapeEditColorPop').classList.remove('on'); }
+  calcSetState(null);
   state.layers = [];
   state.history = [];
   state.historyIndex = -1;
@@ -3589,6 +3630,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === '1') { e.preventDefault(); setTool('graph'); }
   else if (k === '2') { if (shapePopOpen) closeShapePop(); else openShapePop(); }
   else if (k === 'i') _imageFileInput.click();
+  else if (k === 'c') { e.preventDefault(); toggleCalc(); }
 });
 
 function closeModal(id) {
@@ -3632,7 +3674,10 @@ document.getElementById('confirmModal').addEventListener('keydown', (e) => {
    ========================================================================= */
 function boardData() {
   const snap = snapshotState();
-  return { app: 'chiplot', version: 1, snapshot: snap, view: { ...state.view }, bgColor: state.bgColor };
+  const out = { app: 'chiplot', version: 1, snapshot: snap, view: { ...state.view }, bgColor: state.bgColor };
+  const cs = calcGetState();
+  if (cs) out.calc = cs;
+  return out;
 }
 
 function applyBoard(data, label, freshHistory) {
@@ -3647,6 +3692,7 @@ function applyBoard(data, label, freshHistory) {
     state.bgColor = data.bgColor;
     document.getElementById('bgColor').value = data.bgColor;
   }
+  calcSetState(data.calc || null);
   if (freshHistory) { state.history = []; state.historyIndex = -1; }
   syncZoomSlider();
   render();
@@ -5705,6 +5751,148 @@ function closeShapePop() {
   document.getElementById('shapesBtn').classList.remove('active');
 }
 
+
+/* =========================================================================
+   CALCULATOR PANEL
+   ========================================================================= */
+const calcPanel = document.getElementById('calcPanel');
+let calcInst = null, calcSaved = null, calcPlaced = false;
+
+function calcGetState() {
+  if (calcInst) { try { calcSaved = calcInst.getState(); } catch (_) {} }
+  if (!calcSaved || dzIsEmpty(calcSaved)) return null;
+  return calcSaved;
+}
+
+function calcSetState(st) {
+  calcSaved = st || null;
+  if (!calcInst) return;
+  try { if (st) calcInst.setState(st); else calcInst.setBlank(); } catch (_) {}
+}
+
+function calcPlace() {
+  const wr = wrap.getBoundingClientRect();
+  const w = calcPanel.offsetWidth || 340;
+  calcPanel.style.left = Math.max(wr.left + 8, wr.right - w - 12) + 'px';
+  calcPanel.style.top = (wr.top + 60) + 'px';
+  calcPlaced = true;
+}
+
+function openCalc() {
+  if (!calcPlaced) calcPlace();
+  calcPanel.classList.add('on');
+  document.getElementById('calcBtn').classList.add('active');
+  if (calcInst) { calcInst.resize(); calcInst.focusFirstExpression && calcInst.focusFirstExpression(); return; }
+  const host = document.getElementById('calcHost');
+  loadDesmos().then(() => {
+    if (calcInst) return;
+    calcInst = window.Desmos.GraphingCalculator(host, { graphpaper: false, expressions: true, settingsMenu: false, zoomButtons: false, keypad: false, border: false, expressionsCollapsed: false });
+    if (calcSaved) { try { calcInst.setState(calcSaved); } catch (_) {} }
+    if (calcPanel.classList.contains('on') && calcInst.focusFirstExpression) calcInst.focusFirstExpression();
+  }).catch(() => {
+    if (host.querySelector('.dz-msg')) return;
+    const msg = document.createElement('div');
+    msg.className = 'dz-msg';
+    msg.textContent = "Couldn't reach Desmos. Check your connection and try again.";
+    host.appendChild(msg);
+  });
+}
+
+function closeCalc() {
+  if (calcInst) { try { calcSaved = calcInst.getState(); } catch (_) {} }
+  calcPanel.classList.remove('on');
+  document.getElementById('calcBtn').classList.remove('active');
+  const msg = document.querySelector('#calcHost .dz-msg');
+  if (msg) msg.remove();
+}
+
+function toggleCalc() {
+  if (calcPanel.classList.contains('on')) closeCalc(); else openCalc();
+}
+
+document.getElementById('calcBtn').addEventListener('click', toggleCalc);
+wrap.addEventListener('pointerdown', () => {
+  const ae = document.activeElement;
+  if (ae && calcPanel.contains(ae)) ae.blur();
+}, true);
+document.getElementById('calcClose').addEventListener('click', closeCalc);
+
+(function () {
+  const head = document.getElementById('calcHead');
+  let drag = null;
+  head.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('.calc-close')) return;
+    const r = calcPanel.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    head.setPointerCapture(e.pointerId);
+  });
+  head.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const w = calcPanel.offsetWidth, h = calcPanel.offsetHeight, wr = wrap.getBoundingClientRect();
+    calcPanel.style.left = Math.max(wr.left, Math.min(wr.right - w, e.clientX - drag.dx)) + 'px';
+    calcPanel.style.top = Math.max(wr.top, Math.min(wr.bottom - h, e.clientY - drag.dy)) + 'px';
+  });
+  const end = () => { drag = null; };
+  head.addEventListener('pointerup', end);
+  head.addEventListener('pointercancel', end);
+  for (const h of calcPanel.querySelectorAll('.calc-rz')) {
+    let st = null;
+    h.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const r = calcPanel.getBoundingClientRect();
+      st = { x: e.clientX, y: e.clientY, l: r.left, t: r.top, w: r.width, h: r.height, d: h.dataset.d };
+      h.setPointerCapture(e.pointerId);
+    });
+    h.addEventListener('pointermove', (e) => {
+      if (!st) return;
+      const dx = e.clientX - st.x, dy = e.clientY - st.y, MW = 240, MH = 180, wr = wrap.getBoundingClientRect();
+      let { l, t, w, h: hh } = st;
+      if (st.d.includes('e')) w = Math.max(MW, Math.min(wr.right - l, st.w + dx));
+      if (st.d.includes('s')) hh = Math.max(MH, Math.min(wr.bottom - t, st.h + dy));
+      if (st.d.includes('w')) { w = Math.max(MW, Math.min(st.l + st.w - wr.left, st.w - dx)); l = st.l + st.w - w; }
+      if (st.d.includes('n')) { hh = Math.max(MH, Math.min(st.t + st.h - wr.top, st.h - dy)); t = st.t + st.h - hh; }
+      calcPanel.style.left = l + 'px';
+      calcPanel.style.top = t + 'px';
+      calcPanel.style.width = w + 'px';
+      calcPanel.style.height = hh + 'px';
+    });
+    const stop = () => { st = null; };
+    h.addEventListener('pointerup', stop);
+    h.addEventListener('pointercancel', stop);
+  }
+  const resetCalcPos = () => {
+    calcPanel.style.width = '';
+    calcPanel.style.height = '';
+    calcPlace();
+  };
+  let gripDown = false;
+  head.addEventListener('pointerdown', (e) => { gripDown = !!e.target.closest('.calc-grip-wrap'); }, true);
+  head.addEventListener('dblclick', () => { if (gripDown) resetCalcPos(); });
+  let calcActive = false;
+  document.addEventListener('pointerdown', (e) => { calcActive = calcPanel.contains(e.target); }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !calcPanel.classList.contains('on')) return;
+    if (!calcActive && !calcPanel.contains(document.activeElement)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    calcActive = false;
+    closeCalc();
+    if (document.activeElement && calcPanel.contains(document.activeElement)) document.activeElement.blur();
+  }, true);
+  if (window.ResizeObserver) new ResizeObserver(() => { if (calcInst) calcInst.resize(); }).observe(calcPanel);
+  const clampCalc = () => {
+    if (!calcPlaced) return;
+    const wr = wrap.getBoundingClientRect(), r = calcPanel.getBoundingClientRect();
+    const w = Math.min(r.width, wr.width), h = Math.min(r.height, wr.height);
+    if (w !== r.width) calcPanel.style.width = w + 'px';
+    if (h !== r.height) calcPanel.style.height = h + 'px';
+    calcPanel.style.left = Math.max(wr.left, Math.min(wr.right - w, r.left)) + 'px';
+    calcPanel.style.top = Math.max(wr.top, Math.min(wr.bottom - h, r.top)) + 'px';
+  };
+  if (window.ResizeObserver) new ResizeObserver(clampCalc).observe(wrap);
+  window.addEventListener('resize', clampCalc);
+})();
 
 function init() {
   const l1 = makeLayer();
