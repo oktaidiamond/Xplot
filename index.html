@@ -1442,13 +1442,11 @@ function render() {
     }
   }
 
-  if (!state.capturing) {
-    drawSelectionUI();
-    drawShapeEditUI();
-    updateSelectIndicator();
-    drawImageHover();
-    drawEraserCursor();
-  }
+  drawSelectionUI();
+  drawShapeEditUI();
+  updateSelectIndicator();
+  drawImageHover();
+  drawEraserCursor();
   positionEmbeds();
   syncDesmosOverlays();
   // Update the zoom readout unless the user is actively editing it (so their in-progress
@@ -1649,6 +1647,7 @@ function selectionCornersScreen() {
    POINTER EVENTS — main canvas
    ========================================================================= */
 function toolCursor() {
+  if (dz) return 'default';
   return { pen: 'crosshair', select: 'crosshair', eraser: 'none', text: 'text' }[state.tool] || 'default';
 }
 
@@ -1776,6 +1775,7 @@ function canvasPointerDown(e) {
 canvas.addEventListener('pointerdown', canvasPointerDown);
 
 canvas.addEventListener('pointermove', (e) => {
+  if (dz) { canvas.style.cursor = 'default'; return; }
   if (gestureActive() && e.pointerId !== state.activePointerId) return;
   if (gestureActive() && e.buttons === 0) canvasPointerUp(e);
   const sp = eventScreenCoords(e);
@@ -3986,34 +3986,57 @@ _boardFileInput.addEventListener('change', () => {
 document.getElementById('openBoardBtn').addEventListener('click', () => _boardFileInput.click());
 document.getElementById('saveBoardBtn').addEventListener('click', downloadBoard);
 
-async function viewToPngBlob() {
-  commitSelection();
-  closeSnapPop();
-  state.capturing = true;
-  render();
-  try {
-    const dpr = window.devicePixelRatio || 1;
-    if (state.snapMode === 'app') {
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const de = document.documentElement;
-      const full = await html2canvas(document.body, { backgroundColor: null, scale: dpr, logging: false, useCORS: true, x: 0, y: 0, width: de.clientWidth, height: de.clientHeight, windowWidth: de.clientWidth, windowHeight: de.clientHeight, scrollX: 0, scrollY: 0 });
-      return await new Promise((res, rej) => full.toBlob(b => b ? res(b) : rej(new Error('png')), 'image/png'));
-    }
-    const r = wrap.getBoundingClientRect();
-    const out = document.createElement('canvas');
-    out.width = Math.round(r.width * dpr);
-    out.height = Math.round(r.height * dpr);
-    const oc = out.getContext('2d');
-    oc.drawImage(canvas, 0, 0, out.width, out.height);
-    if (window.html2canvas && embedLayer.children.length) {
-      const top = await html2canvas(embedLayer, { backgroundColor: null, scale: dpr, logging: false, useCORS: true, width: r.width, height: r.height });
+function pngFromCanvas(c) {
+  return new Promise((res, rej) => c.toBlob(bl => bl ? res(bl) : rej(new Error('png')), 'image/png'));
+}
+
+function loadHtml2canvas() {
+  if (window.html2canvas) return Promise.resolve(true);
+  return new Promise(res => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    sc.crossOrigin = 'anonymous';
+    sc.onload = () => res(!!window.html2canvas);
+    sc.onerror = () => res(false);
+    document.head.appendChild(sc);
+  });
+}
+
+function snapScale(w, h) {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(0.25, Math.min(dpr, Math.sqrt(16000000 / Math.max(1, w * h))));
+}
+
+async function canvasOnlyBlob(withText) {
+  const r = wrap.getBoundingClientRect();
+  const sc = snapScale(r.width, r.height);
+  const out = document.createElement('canvas');
+  out.width = Math.round(r.width * sc);
+  out.height = Math.round(r.height * sc);
+  const oc = out.getContext('2d');
+  oc.drawImage(canvas, 0, 0, out.width, out.height);
+  if (withText && embedLayer.children.length) {
+    try {
+      const top = await html2canvas(embedLayer, { backgroundColor: null, scale: sc, logging: false, useCORS: true, width: r.width, height: r.height });
       oc.drawImage(top, 0, 0, out.width, out.height);
-    }
-    return await new Promise((res, rej) => out.toBlob(b => b ? res(b) : rej(new Error('png')), 'image/png'));
-  } finally {
-    state.capturing = false;
-    render();
+    } catch (_) {}
   }
+  return pngFromCanvas(out);
+}
+
+async function viewToPngBlob() {
+  closeSnapPop();
+  const haveLib = await loadHtml2canvas();
+  if (state.snapMode === 'app' && haveLib) {
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const de = document.documentElement;
+    const w = de.clientWidth, h = de.clientHeight;
+    try {
+      const full = await html2canvas(document.body, { backgroundColor: null, scale: snapScale(w, h), logging: false, useCORS: true, x: 0, y: 0, width: w, height: h, windowWidth: w, windowHeight: h, scrollX: 0, scrollY: 0, ignoreElements: el => !!(el.classList && el.classList.contains('dz-live')) });
+      return await pngFromCanvas(full);
+    } catch (_) {}
+  }
+  return canvasOnlyBlob(haveLib);
 }
 
 function downloadPngBlob(blob) {
@@ -4044,6 +4067,15 @@ async function snapshotView() {
   } catch (_) {
     try { downloadPngBlob(await viewToPngBlob()); done(true); } catch (_) { done(false); }
   }
+}
+
+for (const type of ['pointerdown', 'mousedown']) {
+  window.addEventListener(type, (e) => {
+    if (e.target && e.target.closest && e.target.closest('#copyImgBtn, #snapPop')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
 }
 
 const snapPop = document.getElementById('snapPop');
@@ -4402,6 +4434,7 @@ function openDesmosEditor(s, isNew) {
   const mode = s.rot ? 'expand' : 'inplace';
   const d = { s, isNew, mode, live: !!s.desmos.live, type: s.desmos.type || '2d', closing: false };
   dz = d;
+  canvas.style.cursor = 'default';
   if (mode === 'expand') dzOpenExpand(d); else dzOpenInPlace(d);
 }
 
@@ -4809,6 +4842,7 @@ function dzFinish(d, result) {
   const s = d.s;
   const layer = dzLayerOf(s);
   dz = null;
+  canvas.style.cursor = toolCursor();
   if (result.removed) {
     if (layer) {
       layer.strokes = layer.strokes.filter(x => x !== s);
@@ -4846,7 +4880,7 @@ document.addEventListener('keydown', (e) => {
 
 let dzSwallowClick = false;
 function dzOwnsTarget(t) {
-  return !!(t && t.closest && t.closest('.dz-inplace, .dz-floatbar, .dz-panel, [class^="dcg-"], [class*=" dcg-"]'));
+  return !!(t && t.closest && t.closest('.dz-inplace, .dz-floatbar, .dz-panel, #copyImgBtn, #snapPop, [class^="dcg-"], [class*=" dcg-"]'));
 }
 document.addEventListener('pointerdown', (e) => {
   if (!dz || dzOwnsTarget(e.target)) return;
